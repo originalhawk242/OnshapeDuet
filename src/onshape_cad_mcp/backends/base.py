@@ -1,0 +1,27 @@
+"""Backend protocol: the only surface the rest of the server talks to."""
+from __future__ import annotations
+
+from typing import Protocol
+
+from ..docref import DocRef
+from ..model import FeatureList, Variable, WriteResult
+
+
+class StaleVersion(Exception):
+    """The document changed since the caller last read it."""
+
+
+class Backend(Protocol):
+    def get_microversion(self, ref: DocRef) -> str: ...
+
+    def list_features(self, ref: DocRef) -> FeatureList: ...
+
+    def get_variables(self, ref: DocRef) -> list[Variable]: ...
+
+    def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
+        """Raises StaleVersion if expected_microversion is not current."""
+        ...
+
+    def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str) -> str:
+        """Returns the new microversion. Raises StaleVersion if stale."""
+        ...
