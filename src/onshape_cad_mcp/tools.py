@@ -14,6 +14,7 @@ from .budget import BudgetExceeded, Ledger
 from .cache import DocCache
 from .config import Config
 from .docref import DocRef
+from .lint import lint_sketch
 from .model import FeatureList
 from .sketch.serialize import to_feature_json
 from .sketch.solver import analyze
@@ -52,8 +53,14 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
     except (SketchSpecError, BudgetExceeded) as e:
         return _reply(ctx, start, False, error=clean(e, 300))
 
-    findings: list = []  # Task 9 hook: lint(sketch, report) -> findings goes here.
-    extra = {"dof": report.dof, "findings": findings}
+    findings = lint_sketch(spec, report, name)
+    extra = {"dof": report.dof, "findings": [f.to_dict() for f in findings]}
+    refusals = [f for f in findings if f.level == "refuse"]
+    if refusals:
+        # Dry run or apply: nothing is written while a refuse finding stands.
+        return _reply(ctx, start, False,
+                      error="refused, nothing written: " + "; ".join(
+                          f"{f.code}: {f.message}" for f in refusals), **extra)
     if not apply:
         return _reply(ctx, start, False, **extra)
 

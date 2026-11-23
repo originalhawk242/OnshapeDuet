@@ -45,7 +45,7 @@ def test_dry_run_sends_no_write(env):
     assert out["applied"] is False
     assert backend.calls["add_feature"] == 0
     assert isinstance(out["dof"], int)
-    assert out["findings"] == []
+    assert all(f["level"] == "warn" for f in out["findings"])  # SPEC repeats a literal
 
 
 def test_apply_adds_feature_with_given_name(env):
