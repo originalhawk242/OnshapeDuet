@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import hmac
 import json
 
 import httpx
@@ -9,7 +12,7 @@ from onshape_cad_mcp.budget import BudgetExceeded, Ledger
 from onshape_cad_mcp.config import Config
 from onshape_cad_mcp.docref import DocRef
 
-REF = DocRef("d1", "w1", "e1")
+REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 
 
 @pytest.fixture(autouse=True)
@@ -122,3 +125,149 @@ def test_get_variables_from_assign_features(tmp_path):
     b, _ = make(tmp_path, lambda r: httpx.Response(200, json=body))
     vs = b.get_variables(REF)
     assert [(v.name, v.expression) for v in vs] == [("w", "10 mm")]
+
+
+def test_sign_matches_independent_hmac():
+    date, nonce = "Mon, 01 Jan 2024 00:00:00 GMT", "AbC123"
+    to_sign = f"GET\n{nonce}\n{date}\napplication/json\n/api/Foo\nq=Z\n".lower()
+    mac = hmac.new(b"sEcret", to_sign.encode(), hashlib.sha256).digest()
+    expected = "On KEY:HmacSHA256:" + base64.b64encode(mac).decode()
+    assert sign("GET", "/api/Foo", "q=Z", "application/json", date, nonce, "KEY", "sEcret") == expected
+
+
+def test_redirected_request_signed_with_redirected_path(tmp_path):
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        if len(seen) == 1:
+            return httpx.Response(302, headers={"Location": "/api/moved?x=Y"})
+        return httpx.Response(200, json={"microversionId": "m"})
+
+    b, _ = make(tmp_path, handler)
+    b.get_microversion(REF)
+    r = seen[1]
+    assert (r.url.path, r.url.query) == ("/api/moved", b"x=Y")
+    expected = sign("GET", "/api/moved", "x=Y", "application/json", r.headers["Date"],
+                    r.headers["On-Nonce"], "key", "secret")
+    assert r.headers["Authorization"] == expected
+
+
+def test_redirect_scheme_downgrade_refused(tmp_path):
+    b, _ = make(tmp_path, lambda r: httpx.Response(302, headers={"Location": "http://cad.onshape.com/api/x"}))
+    with pytest.raises(RuntimeError, match="scheme"):
+        b.get_microversion(REF)
+
+
+def test_redirect_outside_api_refused(tmp_path):
+    b, _ = make(tmp_path, lambda r: httpx.Response(302, headers={"Location": "/login"}))
+    with pytest.raises(RuntimeError, match="/api/"):
+        b.get_microversion(REF)
+
+
+def test_redirect_without_location_raises(tmp_path):
+    b, _ = make(tmp_path, lambda r: httpx.Response(302))
+    with pytest.raises(RuntimeError, match="unexpected Onshape response"):
+        b.get_microversion(REF)
+
+
+def test_redirect_on_write_raises(tmp_path):
+    b, ledger = make(tmp_path, lambda r: httpx.Response(307, headers={"Location": "/api/x"}))
+    with pytest.raises(RuntimeError, match="POST"):
+        b.add_feature(REF, {"type": "x"}, "mv1")
+    assert ledger.used == 1
+
+
+@pytest.mark.parametrize("resp", [
+    httpx.Response(200, content=b""),
+    httpx.Response(200, content=b"not json"),
+    httpx.Response(200, json=[1]),
+    httpx.Response(200, json={}),
+])
+def test_bad_microversion_body_is_clear_error(tmp_path, resp):
+    b, _ = make(tmp_path, lambda r: resp)
+    with pytest.raises(RuntimeError, match="unexpected Onshape response"):
+        b.get_microversion(REF)
+
+
+@pytest.mark.parametrize("body", [{}, {"feature": {}}, {"feature": {"name": "x"}}])
+def test_add_feature_missing_feature_id(tmp_path, body):
+    b, _ = make(tmp_path, lambda r: httpx.Response(200, json=body))
+    with pytest.raises(RuntimeError, match="unexpected Onshape response"):
+        b.add_feature(REF, {"type": "x"}, "mv1")
+
+
+def test_ref_with_bad_component_cannot_be_built():
+    for bad in ("../x", "a/b", "q?x", "%2f"):
+        with pytest.raises(ValueError):
+            DocRef(bad, "b" * 24, "c" * 24)
+
+
+def test_path_builders_reject_forged_ref():
+    from onshape_cad_mcp.backends.onshape import features_path, feature_update_path
+    forged = object.__new__(DocRef)
+    object.__setattr__(forged, "document", "../..")
+    object.__setattr__(forged, "workspace", "b" * 24)
+    object.__setattr__(forged, "element", "c" * 24)
+    with pytest.raises(ValueError):
+        features_path(forged)
+    with pytest.raises(ValueError):
+        feature_update_path(REF, "../x")
+
+
+def _vars_get(mv="mv1", feats=()):
+    return {"sourceMicroversion": mv, "featureStates": {}, "features": list(feats)}
+
+
+def test_set_variable_client_side_stale(tmp_path):
+    calls = []
+    def handler(req):
+        calls.append(req.method)
+        return httpx.Response(200, json=_vars_get("mv2"))
+    b, _ = make(tmp_path, handler)
+    with pytest.raises(StaleVersion):
+        b.set_variable(REF, "w", "1 mm", "mv1")
+    assert calls == ["GET"]
+
+
+def test_set_variable_missing_source_microversion_is_not_stale(tmp_path):
+    b, _ = make(tmp_path, lambda r: httpx.Response(200, json={"features": []}))
+    with pytest.raises(RuntimeError, match="unexpected Onshape response") as ei:
+        b.set_variable(REF, "w", "1 mm", "mv1")
+    assert not isinstance(ei.value, StaleVersion)
+
+
+@pytest.mark.parametrize("status", [409, 412])
+def test_set_variable_write_stale_maps(tmp_path, status):
+    def handler(req):
+        if req.method == "GET":
+            return httpx.Response(200, json=_vars_get())
+        return httpx.Response(status, json={})
+    b, _ = make(tmp_path, handler)
+    with pytest.raises(StaleVersion):
+        b.set_variable(REF, "w", "1 mm", "mv1")
+
+
+def test_set_variable_create_vs_update_path(tmp_path):
+    posts = []
+    def make_handler(feats):
+        def handler(req):
+            if req.method == "GET":
+                return httpx.Response(200, json=_vars_get(feats=feats))
+            posts.append(req.url.path)
+            return httpx.Response(200, json={"sourceMicroversion": "mv9"})
+        return handler
+    b, _ = make(tmp_path, make_handler([]))
+    assert b.set_variable(REF, "w", "1 mm", "mv1") == "mv9"
+    existing = [{"featureId": "FabC_12", "featureType": "assign", "name": "#w", "parameters": []}]
+    b, _ = make(tmp_path, make_handler(existing))
+    b.set_variable(REF, "w", "2 mm", "mv1")
+    assert posts[0].endswith("/features")
+    assert posts[1].endswith("/features/featureid/FabC_12")
+
+
+def test_set_variable_rejects_malicious_existing_feature_id(tmp_path):
+    bad = [{"featureId": "../../x", "featureType": "assign", "name": "#w", "parameters": []}]
+    b, _ = make(tmp_path, lambda r: httpx.Response(200, json=_vars_get(feats=bad)))
+    with pytest.raises(RuntimeError, match="bad featureId"):
+        b.set_variable(REF, "w", "2 mm", "mv1")

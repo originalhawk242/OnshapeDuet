@@ -8,7 +8,7 @@ from onshape_cad_mcp.budget import BudgetExceeded, Ledger
 from onshape_cad_mcp.docref import DocRef
 from onshape_cad_mcp.model import Feature, FeatureList, Variable, WriteResult
 
-REF = DocRef("d", "w", "e")
+REF = DocRef("a"*24, "b"*24, "c"*24)
 FEAT = {"type": "sketch", "name": "S1", "status": "OK", "params": {"a": 1}}
 
 
@@ -73,4 +73,4 @@ def test_no_ledger_no_charge_and_budget_enforced(tmp_path):
 
 
 def test_docref_hashable():
-    assert {REF: 1}[DocRef("d", "w", "e")] == 1
+    assert {REF: 1}[DocRef("a"*24, "b"*24, "c"*24)] == 1

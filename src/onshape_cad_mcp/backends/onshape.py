@@ -11,29 +11,42 @@ import base64
 import hashlib
 import hmac
 import os
+import re
 import secrets
 from email.utils import formatdate
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
 from ..budget import Ledger
 from ..config import Config
-from ..docref import DocRef
+from ..docref import DocRef, is_valid_id
 from ..model import Feature, FeatureList, Variable, WriteResult
 from .base import StaleVersion
 
 # --- Unverified endpoint paths (Task 12) -----------------------------------
+_FEATURE_ID = re.compile(r"[A-Za-z0-9_]{1,64}")  # real feature ids are not 24-hex (unverified, Task 12)
+
+
+def _seg(value: str) -> str:
+    if not is_valid_id(value):
+        raise ValueError(f"invalid Onshape id: {value!r}")
+    return quote(value, safe="")
+
+
 def features_path(ref: DocRef) -> str:
-    return f"/api/v6/partstudios/d/{ref.document}/w/{ref.workspace}/e/{ref.element}/features"
+    return (f"/api/v6/partstudios/d/{_seg(ref.document)}/w/{_seg(ref.workspace)}"
+            f"/e/{_seg(ref.element)}/features")
 
 
 def feature_update_path(ref: DocRef, feature_id: str) -> str:
-    return f"{features_path(ref)}/featureid/{feature_id}"
+    if not _FEATURE_ID.fullmatch(feature_id):
+        raise ValueError(f"invalid feature id: {feature_id!r}")
+    return f"{features_path(ref)}/featureid/{quote(feature_id, safe='')}"
 
 
 def microversion_path(ref: DocRef) -> str:
-    return f"/api/documents/d/{ref.document}/w/{ref.workspace}/currentmicroversion"
+    return f"/api/documents/d/{_seg(ref.document)}/w/{_seg(ref.workspace)}/currentmicroversion"
 
 
 # --- Unverified JSON shape assumptions (Task 12) ---------------------------
@@ -84,7 +97,8 @@ class OnshapeBackend:
 
     def _request(self, method: str, path: str, query: str = "", body: dict | None = None) -> httpx.Response:
         access, secret = self._creds()  # before charging: missing creds cost nothing
-        base_host = urlsplit(self.config.base_url).netloc
+        base = urlsplit(self.config.base_url)
+        base_host, base_scheme = base.netloc, base.scheme
         for _ in range(MAX_REDIRECTS + 1):
             self.ledger.charge(1, f"{method} {path}")
             date = formatdate(usegmt=True)
@@ -99,13 +113,19 @@ class OnshapeBackend:
             url = path + (f"?{query}" if query else "")
             resp = self._client.request(method, url, headers=headers,
                                         json=body if body is not None else None)
-            if resp.status_code in (301, 302, 303, 307, 308) and "location" in resp.headers:
+            if 300 <= resp.status_code < 400:
+                if method != "GET":
+                    raise RuntimeError(f"refusing redirect on {method} (write not replayed)")
+                if "location" not in resp.headers:
+                    raise RuntimeError(f"unexpected Onshape response: HTTP {resp.status_code} without Location")
                 loc = urlsplit(resp.headers["location"])
+                if loc.scheme and loc.scheme != base_scheme:
+                    raise RuntimeError("refusing redirect with different scheme")
                 if loc.netloc and loc.netloc != base_host:
                     raise RuntimeError("refusing redirect to other host")
+                if not loc.path.startswith("/api/") or ".." in loc.path.split("/"):
+                    raise RuntimeError("refusing redirect outside /api/")
                 path, query = loc.path, loc.query
-                if resp.status_code in (301, 302, 303):
-                    method, body = "GET", None
                 continue
             return resp
         raise RuntimeError("too many redirects")
@@ -115,10 +135,19 @@ class OnshapeBackend:
             raise StaleVersion(f"document changed (HTTP {resp.status_code})")
         if resp.status_code >= 400:
             raise RuntimeError(f"Onshape API error {resp.status_code}: {resp.text[:200]}")
-        return resp.json()
+        try:
+            data = resp.json()
+        except ValueError as e:
+            raise RuntimeError(f"unexpected Onshape response: body is not JSON ({e})") from e
+        if not isinstance(data, dict):
+            raise RuntimeError("unexpected Onshape response: JSON body is not an object")
+        return data
 
     def get_microversion(self, ref: DocRef) -> str:
-        return self._ok(self._request("GET", microversion_path(ref)))["microversionId"]
+        mv = self._ok(self._request("GET", microversion_path(ref))).get("microversionId")
+        if not isinstance(mv, str) or not mv:
+            raise RuntimeError("unexpected Onshape response: missing microversionId")
+        return mv
 
     def list_features(self, ref: DocRef) -> FeatureList:
         data = self._ok(self._request("GET", features_path(ref)))
@@ -144,16 +173,22 @@ class OnshapeBackend:
         body = {"feature": feature_json, "serializationVersion": SERIALIZATION_VERSION,
                 "sourceMicroversion": expected_microversion}
         data = self._ok(self._request("POST", features_path(ref), body=body), stale_ok=True)
-        st = {data.get("feature", {}).get("featureId", ""): data.get("featureState") or {}}
-        feat = _parse_feature(data.get("feature", {}), st)
+        raw = data.get("feature")
+        if not isinstance(raw, dict) or not raw.get("featureId"):
+            raise RuntimeError("unexpected Onshape response: add_feature reply missing feature/featureId")
+        st = {raw["featureId"]: data.get("featureState") or {}}
+        feat = _parse_feature(raw, st)
         mv = data.get("sourceMicroversion") or self.get_microversion(ref)
         return WriteResult(feat, mv)
 
     def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str) -> str:
         # TODO(Task 12): variable feature JSON and update endpoint are unverified.
         data = self._ok(self._request("GET", features_path(ref)))
-        if data.get("sourceMicroversion") != expected_microversion:
-            raise StaleVersion(f"expected {expected_microversion}, current {data.get('sourceMicroversion')}")
+        current = data.get("sourceMicroversion")
+        if not current:
+            raise RuntimeError("unexpected Onshape response: missing sourceMicroversion")
+        if current != expected_microversion:
+            raise StaleVersion(f"expected {expected_microversion}, current {current}")
         feature = {
             "btType": "BTMFeature-134",
             "featureType": VARIABLE_FEATURE_TYPE,
@@ -166,6 +201,12 @@ class OnshapeBackend:
                          and f.get("name") == VARIABLE_NAME_PREFIX + name), None)
         body = {"feature": feature, "serializationVersion": SERIALIZATION_VERSION,
                 "sourceMicroversion": expected_microversion}
-        path = feature_update_path(ref, existing["featureId"]) if existing else features_path(ref)
+        if existing is not None:
+            fid = existing.get("featureId")
+            if not isinstance(fid, str) or not _FEATURE_ID.fullmatch(fid):
+                raise RuntimeError("unexpected Onshape response: bad featureId on existing variable")
+            path = feature_update_path(ref, fid)
+        else:
+            path = features_path(ref)
         resp = self._ok(self._request("POST", path, body=body), stale_ok=True)
         return resp.get("sourceMicroversion") or self.get_microversion(ref)
