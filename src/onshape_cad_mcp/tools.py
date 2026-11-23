@@ -7,6 +7,7 @@ before the write.
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -16,7 +17,10 @@ from .cache import DocCache
 from .config import Config
 from .docref import DocRef
 from .lint import lint_sketch
+from pathlib import Path
+
 from .model import FeatureList
+from .outline import render_outline
 from .sketch.serialize import to_feature_json
 from .sketch.solver import analyze
 from .sketch.spec import SketchSpecError, evaluate_variables, parse_sketch_spec
@@ -30,6 +34,7 @@ class Context:
     ledger: Ledger
     config: Config
     last_read: dict[DocRef, str] = field(default_factory=dict)
+    config_path: Path | None = None
 
     def read(self, ref: DocRef) -> FeatureList:
         fl = self.cache.read(ref)
@@ -118,3 +123,30 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     ctx.last_read[ref] = new_mv
     ctx.cache.note_write(ref, new_mv)  # no feature: cache drops the entry (intended)
     return _reply(ctx, start, True, **extra)
+
+
+def cad_status(ctx: Context) -> dict:
+    """Budget and credential status. Makes zero Onshape requests."""
+    cfg = ctx.config
+    return {
+        "budget": ctx.ledger.limit,
+        "used": ctx.ledger.used,
+        "remaining": ctx.ledger.remaining,
+        "credentials_present": bool(os.environ.get(cfg.key_env) and os.environ.get(cfg.secret_env)),
+        "credential_env_vars": [cfg.key_env, cfg.secret_env],
+        "config_path": str(ctx.config_path) if ctx.config_path else None,
+    }
+
+
+def cad_read(ctx: Context, ref: DocRef) -> str:
+    """Outline of the Part Studio (features + variables). Every sketch is
+    `not assessed` (R6: reading existing sketches into DOF reports is out of scope)."""
+    start = ctx.ledger.used
+    try:
+        fl = ctx.read(ref)
+        variables = ctx.backend.get_variables(ref)
+        body = render_outline(fl, variables)
+    except (BudgetExceeded, RuntimeError) as e:
+        body = "error: " + clean(e, 300)
+    return (f"{body}\nrequests used: {ctx.ledger.used - start}, "
+            f"budget left: {ctx.ledger.remaining}")
