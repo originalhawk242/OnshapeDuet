@@ -7,6 +7,7 @@ before the write.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from .backends.base import Backend, StaleVersion
@@ -34,6 +35,12 @@ class Context:
         fl = self.cache.read(ref)
         self.last_read[ref] = fl.microversion
         return fl
+
+
+_STALE = ("stale: the document changed since it was last read; "
+          "re-read the document (cad_read) and retry")
+_VAR_NAME = re.compile(r"[a-z][a-z0-9_]*")
+_MAX_EXPR = 200
 
 
 def _reply(ctx: Context, start_used: int, applied: bool, **extra) -> dict:
@@ -70,10 +77,44 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
         return _reply(ctx, start, False, error=clean(e, 300), **extra)
     except StaleVersion:
         return _reply(ctx, start, False,
-                      error="stale: the document changed since it was last read; "
-                            "re-read the document (cad_read) and retry", **extra)
+                      error=_STALE, **extra)
     # note_write splices our feature into the cached list; that is only sound
     # because every write passes expected_microversion (nothing else changed).
     ctx.last_read[ref] = result.microversion
     ctx.cache.note_write(ref, result.microversion, result.feature)
+    return _reply(ctx, start, True, **extra)
+
+
+def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: bool = False) -> dict:
+    start = ctx.ledger.used
+    if not isinstance(name, str) or not _VAR_NAME.fullmatch(name):
+        return _reply(ctx, start, False,
+                      error="invalid variable name: must match ^[a-z][a-z0-9_]*$")
+    if (not isinstance(expression, str) or not expression.strip()
+            or len(expression) > _MAX_EXPR
+            or any(not c.isprintable() for c in expression)):
+        return _reply(ctx, start, False, name=name,
+                      error=f"invalid expression: must be non-empty, at most {_MAX_EXPR} "
+                            "characters, with no newlines or control characters")
+    if apply and ref not in ctx.last_read:
+        return _reply(ctx, start, False, error="read the document first (cad_read) before applying")
+    try:
+        existing = {v.name: v.expression for v in ctx.backend.get_variables(ref)}
+    except BudgetExceeded as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    old = existing.get(name)
+    extra = {"name": name, "old": None if old is None else clean(old, 200),
+             "new": expression, "findings": []}
+    if not apply:
+        return _reply(ctx, start, False, **extra)
+
+    try:
+        new_mv = ctx.backend.set_variable(ref, name, expression,
+                                          expected_microversion=ctx.last_read[ref])
+    except BudgetExceeded as e:
+        return _reply(ctx, start, False, error=clean(e, 300), **extra)
+    except StaleVersion:
+        return _reply(ctx, start, False, error=_STALE, **extra)
+    ctx.last_read[ref] = new_mv
+    ctx.cache.note_write(ref, new_mv)  # no feature: cache drops the entry (intended)
     return _reply(ctx, start, True, **extra)
