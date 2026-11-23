@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
@@ -74,7 +75,12 @@ def build_server(ctx: Context) -> MCPServer:
 def main() -> None:
     env = os.environ.get("ONSHAPE_CAD_MCP_CONFIG")
     path = Path(env).expanduser() if env else DEFAULT_CONFIG
-    build_server(build_context(path)).run("stdio")
+    try:
+        ctx = build_context(path)
+    except ValueError as e:
+        print(f"onshape-cad-mcp: invalid config {path}: {e}", file=sys.stderr)
+        raise SystemExit(2) from None
+    build_server(ctx).run("stdio")
 
 
 if __name__ == "__main__":

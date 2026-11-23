@@ -13,3 +13,19 @@ def test_toml_sets_budget(tmp_path):
     p = tmp_path / "c.toml"
     p.write_text("budget = 40\n")
     assert load_config(p).budget == 40
+
+
+import pytest
+
+
+@pytest.mark.parametrize("text", ['budget = "5"', "budget = -1", "budget = true", "budjet = 5", "budget = ["])
+def test_bad_config_raises_clear_error(tmp_path, text):
+    p = tmp_path / "c.toml"
+    p.write_text(text)
+    with pytest.raises(ValueError) as e:
+        load_config(p)
+    assert str(p) in str(e.value)
+    if "budjet" in text:
+        assert "budjet" in str(e.value)
+    elif "[" not in text:
+        assert "budget" in str(e.value)
