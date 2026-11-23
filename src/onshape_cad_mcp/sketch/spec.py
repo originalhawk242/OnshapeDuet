@@ -127,6 +127,8 @@ def resolve_ref(sketch: Sketch, ref, what: str) -> tuple[str, str | None]:
     if ref in sketch.not_assessed:
         return ref, None
     base, _, part = ref.rpartition(".")
+    if base and part in POINT_PARTS and base in sketch.not_assessed:
+        return base, part
     if base and part in POINT_PARTS and base in sketch.entities:
         ent = sketch.entities[base]
         ok = (ent.type == "line" and part in ("start", "end")) or (
@@ -141,6 +143,10 @@ def parse_sketch_spec(spec: dict, variables: dict[str, float]) -> Sketch:
     if not isinstance(spec, dict):
         raise SketchSpecError("sketch spec must be an object")
     sketch = Sketch(plane=str(spec.get("plane", "Front")))
+    for key in ("entities", "constraints", "dimensions"):
+        items = spec.get(key, [])
+        if not isinstance(items, list) or not all(isinstance(it, dict) for it in items):
+            raise SketchSpecError(f"{key}: expected a list of objects")
     for i, e in enumerate(spec.get("entities", [])):
         etype = e.get("type")
         eid = e.get("id") or f"{etype}_{i + 1}"
@@ -169,6 +175,8 @@ def parse_sketch_spec(spec: dict, variables: dict[str, float]) -> Sketch:
         if ctype not in CONSTRAINT_TYPES:
             raise SketchSpecError(f"constraint #{j + 1}: unknown constraint type {ctype!r}")
         refs = c.get("refs", [])
+        if not isinstance(refs, list):
+            raise SketchSpecError(f"constraint #{j + 1}: refs must be a list, got {refs!r}")
         for r in refs:
             resolve_ref(sketch, r, f"constraint #{j + 1} ({ctype})")
         sketch.constraints.append(Constraint(ctype, list(refs)))
@@ -177,7 +185,9 @@ def parse_sketch_spec(spec: dict, variables: dict[str, float]) -> Sketch:
         dtype = d.get("type")
         if dtype not in DIMENSION_TYPES:
             raise SketchSpecError(f"dimension #{j + 1}: unknown dimension type {dtype!r}")
-        refs = list(d["refs"]) if "refs" in d else [d.get("ref")]
+        refs = d["refs"] if "refs" in d else [d.get("ref")]
+        if not isinstance(refs, list):
+            raise SketchSpecError(f"dimension #{j + 1}: refs must be a list, got {refs!r}")
         for r in refs:
             resolve_ref(sketch, r, f"dimension #{j + 1} ({dtype})")
         val = d.get("value")

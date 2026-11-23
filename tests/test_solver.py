@@ -175,3 +175,127 @@ def test_evaluate_variables_units():
 def test_evaluate_variables_rejects_expressions_naming_variable():
     with pytest.raises(SketchSpecError, match="width"):
         evaluate_variables([Variable("width", "#a * 2")])
+
+
+# --- consistency at the nominal configuration (R12) ---
+def test_reviewer_repro_contradiction_reports_conflict():
+    spec = {
+        "plane": "Front",
+        "entities": [
+            {"id": "a", "type": "line", "start": [0, 0], "end": [10, 0]},
+            {"id": "b", "type": "line", "start": [0, 0], "end": [0, 10]},
+        ],
+        "constraints": [
+            {"type": "ground", "refs": ["a.start"]},
+            {"type": "ground", "refs": ["a.end"]},
+            {"type": "ground", "refs": ["b.start"]},
+            {"type": "parallel", "refs": ["a", "b"]},
+            {"type": "perpendicular", "refs": ["a", "b"]},
+        ],
+    }
+    rep = run(spec)
+    assert rep.conflicts and rep.redundant is True
+    assert not (rep.dof == 0 and not rep.conflicts)
+
+
+def one_line(dims):
+    return {"plane": "Front",
+            "entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [10, 0]}],
+            "dimensions": [{"type": "length", "ref": "l", "value": v} for v in dims]}
+
+
+def test_contradictory_lengths_are_a_conflict_but_identical_are_only_redundant():
+    bad = run(one_line([10, 12]))
+    assert bad.conflicts and bad.redundant is True
+    dup = run(one_line([10, 10]))
+    assert dup.conflicts == [] and dup.redundant is True
+
+
+def test_rectangle_coordinates_violating_dimensions_name_the_dimension():
+    spec = rect([GROUND], DIMS)
+    spec["entities"][0]["corner2"] = [50, 40]
+    rep = run(spec)
+    assert rep.redundant is True
+    assert any("dimension #1 (length)" in c for c in rep.conflicts)
+
+
+def test_consistent_sketch_has_no_conflicts():
+    assert run(rect([GROUND], DIMS)).conflicts == []
+
+
+def test_refs_into_not_assessed_entity_are_tolerated():
+    spec = rect()
+    spec["entities"].append({"id": "s", "type": "spline"})
+    spec["constraints"] = [{"type": "coincident", "refs": ["s.start", "r.bottom.start"]},
+                           {"type": "horizontal", "refs": ["s"]}]
+    rep = run(spec)
+    assert rep.dof == 4 and rep.not_assessed == ["s"]
+
+
+@pytest.mark.parametrize("spec", [
+    {"entities": ["x"]},
+    {"entities": [], "constraints": ["x"]},
+    {"entities": [], "dimensions": [3]},
+    {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [1, 0]}],
+     "constraints": [{"type": "horizontal", "refs": "l"}]},
+    {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [1, 0]}],
+     "dimensions": [{"type": "length", "refs": "l", "value": 1}]},
+])
+def test_malformed_spec_raises_spec_error(spec):
+    with pytest.raises(SketchSpecError):
+        parse_sketch_spec(spec, {})
+
+
+# --- finite-difference check of every analytic Jacobian row ---
+def _fd_sketch():
+    import numpy as np  # noqa: F401
+    return {
+        "plane": "Front",
+        "entities": [
+            {"id": "a", "type": "line", "start": [1, 2], "end": [7, 4]},
+            {"id": "b", "type": "line", "start": [3, -1], "end": [5, 6]},
+            {"id": "p", "type": "point", "x": 2, "y": 9},
+            {"id": "c1", "type": "circle", "center": [4, 4], "radius": 3},
+            {"id": "c2", "type": "circle", "center": [-2, 1], "radius": 5},
+        ],
+        "constraints": [
+            {"type": "coincident", "refs": ["a.end", "p"]},
+            {"type": "horizontal", "refs": ["a"]},
+            {"type": "horizontal", "refs": ["a.start", "p"]},
+            {"type": "vertical", "refs": ["b"]},
+            {"type": "vertical", "refs": ["b.start", "c1.center"]},
+            {"type": "parallel", "refs": ["a", "b"]},
+            {"type": "perpendicular", "refs": ["a", "b"]},
+            {"type": "equal", "refs": ["a", "b"]},
+            {"type": "equal", "refs": ["c1", "c2"]},
+            {"type": "ground", "refs": ["p"]},
+        ],
+        "dimensions": [
+            {"type": "length", "ref": "a", "value": 5},
+            {"type": "diameter", "ref": "c1", "value": 6},
+            {"type": "distance_h", "ref": "p", "value": 1},
+            {"type": "distance_v", "ref": "p", "value": 1},
+            {"type": "distance_h", "refs": ["a.start", "c2.center"], "value": 1},
+            {"type": "distance_v", "refs": ["a.start", "c2.center"], "value": 1},
+        ],
+    }
+
+
+def test_analytic_jacobian_matches_finite_differences():
+    import numpy as np
+    from onshape_cad_mcp.sketch.solver import build_rows
+
+    rows, lay = build_rows(parse_sketch_spec(_fd_sketch(), {}))
+    x0 = np.array(lay.x, dtype=float)
+    labels = {r.label.split(" (")[1] for r in rows}
+    assert {"length)", "diameter)", "distance_h)", "distance_v)", "coincident)", "horizontal)",
+            "vertical)", "parallel)", "perpendicular)", "equal)", "ground)"} <= labels
+    h = 1e-6
+    for r in rows:
+        num = np.zeros_like(x0)
+        for k in range(len(x0)):
+            xp, xm = x0.copy(), x0.copy()
+            xp[k] += h
+            xm[k] -= h
+            num[k] = (r.fn(xp) - r.fn(xm)) / (2 * h)
+        assert np.allclose(r.jac, num, atol=1e-5), (r.label, r.jac, num)

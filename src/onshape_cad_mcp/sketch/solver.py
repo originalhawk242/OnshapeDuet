@@ -8,13 +8,18 @@ the null space of J has a component on its variables above 1e-9.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable
 
 import numpy as np
 
 from .spec import Sketch, SketchSpecError, resolve_ref
 
 TOL = 1e-9
+# Residuals are compared to REL_TOL * sketch scale (largest |coordinate| or
+# |dimension value|; squared for quadratic rows). 1e-6 of scale is far above
+# float noise (~1e-15) yet far below any real design error (1 micron on 1 m).
+REL_TOL = 1e-6
 _NPTS = {"point": 1, "line": 2, "circle": 1}
 
 
@@ -24,6 +29,7 @@ class DofReport:
     redundant: bool
     free: list[str]
     not_assessed: list[str]
+    conflicts: list[str] = field(default_factory=list)
 
 
 class _Layout:
@@ -67,35 +73,55 @@ class _Layout:
         return ent, self.offset[eid]
 
 
-def _jacobian(sketch: Sketch) -> tuple[np.ndarray, _Layout]:
+@dataclass
+class Row:
+    label: str
+    jac: np.ndarray
+    fn: Callable[[np.ndarray], float]  # residual as a function of the variable vector
+    degree: int  # 1 linear, 2 quadratic (scales with length squared)
+
+
+def _skipped(sketch: Sketch, refs) -> bool:
+    for r in refs:
+        eid, _ = resolve_ref(sketch, r, "ref")
+        if eid in sketch.not_assessed:
+            return True
+    return False
+
+
+def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
     lay = _Layout(sketch)
     x = lay.x
     n = len(x)
-    rows: list[np.ndarray] = []
+    rows: list[Row] = []
 
-    def row() -> np.ndarray:
+    def emit(label, jac, fn, degree=1):
+        rows.append(Row(label, jac, fn, degree))
+
+    def unit(*terms):
         r = np.zeros(n)
-        rows.append(r)
+        for idx, coef in terms:
+            r[idx] += coef
         return r
 
     def nrefs(refs, k, what):
         if len(refs) != k:
             raise SketchSpecError(f"{what}: expected {k} ref(s), got {len(refs)}")
 
-    def dirvec(o):  # line direction (dx, dy) and its variable indices
+    def dirvec(o):
         return x[o + 2] - x[o], x[o + 3] - x[o + 1]
 
     for i, c in enumerate(sketch.constraints):
         what = f"constraint #{i + 1} ({c.type})"
-        if any(r.split(".")[0] in sketch.not_assessed or r in sketch.not_assessed for r in c.refs):
+        if _skipped(sketch, c.refs):
             continue
         if c.type == "coincident":
             nrefs(c.refs, 2, what)
-            (ax, ay), (bx, by) = lay.point(c.refs[0], what), lay.point(c.refs[1], what)
-            for a, b in ((ax, bx), (ay, by)):
-                r = row(); r[a] += 1; r[b] -= 1
+            pa, pb = lay.point(c.refs[0], what), lay.point(c.refs[1], what)
+            for a, b in zip(pa, pb):
+                emit(what, unit((a, 1), (b, -1)), lambda v, a=a, b=b: v[a] - v[b])
         elif c.type in ("horizontal", "vertical"):
-            k = 1 if c.type == "horizontal" else 0  # horizontal: y equal
+            k = 1 if c.type == "horizontal" else 0
             if len(c.refs) == 1:
                 o = lay.line(c.refs[0], what)
                 a, b = o + k, o + 2 + k
@@ -103,47 +129,56 @@ def _jacobian(sketch: Sketch) -> tuple[np.ndarray, _Layout]:
                 nrefs(c.refs, 2, what)
                 a = lay.point(c.refs[0], what)[k]
                 b = lay.point(c.refs[1], what)[k]
-            r = row(); r[a] += 1; r[b] -= 1
+            emit(what, unit((a, 1), (b, -1)), lambda v, a=a, b=b: v[a] - v[b])
         elif c.type in ("parallel", "perpendicular"):
             nrefs(c.refs, 2, what)
             o1, o2 = lay.line(c.refs[0], what), lay.line(c.refs[1], what)
             d1x, d1y = dirvec(o1)
             d2x, d2y = dirvec(o2)
-            r = row()
             if c.type == "parallel":  # d1x*d2y - d1y*d2x
-                r[o1 + 2] += d2y; r[o1] -= d2y
-                r[o1 + 3] -= d2x; r[o1 + 1] += d2x
-                r[o2 + 3] += d1x; r[o2 + 1] -= d1x
-                r[o2 + 2] -= d1y; r[o2] += d1y
+                jac = unit((o1 + 2, d2y), (o1, -d2y), (o1 + 3, -d2x), (o1 + 1, d2x),
+                           (o2 + 3, d1x), (o2 + 1, -d1x), (o2 + 2, -d1y), (o2, d1y))
+
+                def fn(v, o1=o1, o2=o2):
+                    return ((v[o1 + 2] - v[o1]) * (v[o2 + 3] - v[o2 + 1])
+                            - (v[o1 + 3] - v[o1 + 1]) * (v[o2 + 2] - v[o2]))
             else:  # d1x*d2x + d1y*d2y
-                r[o1 + 2] += d2x; r[o1] -= d2x
-                r[o1 + 3] += d2y; r[o1 + 1] -= d2y
-                r[o2 + 2] += d1x; r[o2] -= d1x
-                r[o2 + 3] += d1y; r[o2 + 1] -= d1y
+                jac = unit((o1 + 2, d2x), (o1, -d2x), (o1 + 3, d2y), (o1 + 1, -d2y),
+                           (o2 + 2, d1x), (o2, -d1x), (o2 + 3, d1y), (o2 + 1, -d1y))
+
+                def fn(v, o1=o1, o2=o2):
+                    return ((v[o1 + 2] - v[o1]) * (v[o2 + 2] - v[o2])
+                            + (v[o1 + 3] - v[o1 + 1]) * (v[o2 + 3] - v[o2 + 1]))
+            emit(what, jac, fn, 2)
         elif c.type == "equal":
             nrefs(c.refs, 2, what)
             (e1, o1), (e2, o2) = lay.entity(c.refs[0], what), lay.entity(c.refs[1], what)
             if e1.type == "line" and e2.type == "line":
-                r = row()  # |d1|^2 - |d2|^2
+                terms = []
                 for o, s in ((o1, 1.0), (o2, -1.0)):
                     dx, dy = dirvec(o)
-                    r[o + 2] += 2 * s * dx; r[o] -= 2 * s * dx
-                    r[o + 3] += 2 * s * dy; r[o + 1] -= 2 * s * dy
+                    terms += [(o + 2, 2 * s * dx), (o, -2 * s * dx),
+                              (o + 3, 2 * s * dy), (o + 1, -2 * s * dy)]
+
+                def fn(v, o1=o1, o2=o2):
+                    return (((v[o1 + 2] - v[o1]) ** 2 + (v[o1 + 3] - v[o1 + 1]) ** 2)
+                            - ((v[o2 + 2] - v[o2]) ** 2 + (v[o2 + 3] - v[o2 + 1]) ** 2))
+                emit(what, unit(*terms), fn, 2)
             elif e1.type == "circle" and e2.type == "circle":
-                r = row(); r[o1 + 2] += 1; r[o2 + 2] -= 1
+                emit(what, unit((o1 + 2, 1), (o2 + 2, -1)), lambda v, a=o1 + 2, b=o2 + 2: v[a] - v[b])
             else:
                 raise SketchSpecError(
                     f"{what}: equal needs two lines or two circles, got {e1.type} and {e2.type}")
         elif c.type == "ground":
             nrefs(c.refs, 1, what)
-            px, py = lay.point(c.refs[0], what)
-            r = row(); r[px] = 1
-            r = row(); r[py] = 1
+            for idx in lay.point(c.refs[0], what):
+                emit(what, unit((idx, 1)), lambda v, idx=idx: v[idx])
 
     for i, d in enumerate(sketch.dimensions):
         what = f"dimension #{i + 1} ({d.type})"
-        if any(r.split(".")[0] in sketch.not_assessed or r in sketch.not_assessed for r in d.refs):
+        if _skipped(sketch, d.refs):
             continue
+        val = d.value
         if d.type == "length":
             nrefs(d.refs, 1, what)
             o = lay.line(d.refs[0], what)
@@ -152,35 +187,55 @@ def _jacobian(sketch: Sketch) -> tuple[np.ndarray, _Layout]:
             if length < TOL:
                 raise SketchSpecError(f"{what}: line {d.refs[0]!r} has zero length at its nominal position")
             ux, uy = dx / length, dy / length
-            r = row()
-            r[o + 2] += ux; r[o] -= ux; r[o + 3] += uy; r[o + 1] -= uy
+            emit(what, unit((o + 2, ux), (o, -ux), (o + 3, uy), (o + 1, -uy)),
+                 lambda v, o=o, val=val: float(np.hypot(v[o + 2] - v[o], v[o + 3] - v[o + 1])) - val)
         elif d.type == "diameter":
             nrefs(d.refs, 1, what)
             ent, o = lay.entity(d.refs[0], what)
             if ent.type != "circle":
                 raise SketchSpecError(f"{what}: {d.refs[0]!r} is not a circle")
-            r = row(); r[o + 2] = 2.0
+            emit(what, unit((o + 2, 2.0)), lambda v, o=o, val=val: 2.0 * v[o + 2] - val)
         else:  # distance_h / distance_v
             k = 0 if d.type == "distance_h" else 1
             if len(d.refs) == 1:
-                r = row(); r[lay.point(d.refs[0], what)[k]] += 1
+                a = lay.point(d.refs[0], what)[k]
+                emit(what, unit((a, 1)), lambda v, a=a, val=val: v[a] - val)
             else:
                 nrefs(d.refs, 2, what)
                 a = lay.point(d.refs[0], what)[k]
                 b = lay.point(d.refs[1], what)[k]
-                r = row(); r[b] += 1; r[a] -= 1
-
-    jac = np.vstack(rows) if rows else np.zeros((0, n))
-    return jac, lay
+                emit(what, unit((b, 1), (a, -1)), lambda v, a=a, b=b, val=val: v[b] - v[a] - val)
+    return rows, lay
 
 
 def analyze(sketch: Sketch) -> DofReport:
-    jac, lay = _jacobian(sketch)
-    n_rows, n_vars = jac.shape
+    rows, lay = build_rows(sketch)
+    n_vars = len(lay.x)
+    n_rows = len(rows)
+    x0 = np.array(lay.x, dtype=float)
+    jac = np.vstack([r.jac for r in rows]) if rows else np.zeros((0, n_vars))
+    res = np.array([r.fn(x0) for r in rows], dtype=float)
+
+    scale = max([abs(c) for c in lay.x] + [abs(d.value) for d in sketch.dimensions] + [0.0])
+    if scale == 0.0:
+        scale = 1.0
+    conflicts: list[str] = []
+    for r, val in zip(rows, res):
+        tol = REL_TOL * scale ** r.degree
+        if abs(val) > tol:
+            msg = f"{r.label}: residual {val:.6g} at the spec coordinates (tolerance {tol:.3g})"
+            if msg not in conflicts:
+                conflicts.append(msg)
+
     rank = int(np.linalg.matrix_rank(jac)) if n_rows and n_vars else 0
     if n_rows and n_vars:
+        aug_rank = int(np.linalg.matrix_rank(np.hstack([jac, res[:, None]])))
+        if aug_rank > rank:
+            conflicts.append(
+                "contradictory constraints/dimensions: no configuration satisfies all rows "
+                f"(rank [J|r] = {aug_rank} > rank J = {rank})")
         _, _, vt = np.linalg.svd(jac, full_matrices=True)
-        null = vt[rank:].T  # n_vars x (n_vars - rank)
+        null = vt[rank:].T
     else:
         null = np.eye(n_vars)
     free = []
@@ -191,7 +246,8 @@ def analyze(sketch: Sketch) -> DofReport:
             free.append(eid)
     return DofReport(
         dof=n_vars - rank,
-        redundant=rank < n_rows,
+        redundant=rank < n_rows or bool(conflicts),
         free=free,
         not_assessed=list(sketch.not_assessed),
+        conflicts=conflicts,
     )
