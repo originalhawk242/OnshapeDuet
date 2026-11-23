@@ -59,7 +59,7 @@ class FakeBackend:
         self._check(d, expected_microversion)
         feat = Feature(
             id=f"F{len(d.features) + 1}",
-            type=feature_json.get("type", ""),
+            type=feature_json.get("type") or feature_json.get("featureType") or feature_json.get("btType") or "",
             name=feature_json.get("name", ""),
             status=feature_json.get("status", "OK"),
             params=dict(feature_json.get("params", {})),

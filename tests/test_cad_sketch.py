@@ -135,3 +135,53 @@ def test_serializer_rejects_wrong_ref_count():
                             "constraints": [{"type": "coincident", "refs": ["l"]}]}, {})
     with pytest.raises(SketchSpecError):
         to_feature_json(sk, "S")
+
+
+def _w_sketch(value):
+    return parse_sketch_spec(
+        {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [50, 0]}],
+         "dimensions": [{"type": "length", "ref": "l", "value": value}]}, {"w": 50.0})
+
+
+def _dim_expr(feat):
+    dim = next(c for c in feat["constraints"] if c["constraintType"] == "LENGTH")
+    return next(p["expression"] for p in dim["parameters"] if p["btType"].startswith("BTMParameterQuantity"))
+
+
+def test_variable_dimension_keeps_variable_reference():
+    expr = _dim_expr(to_feature_json(_w_sketch("#w"), "S"))
+    assert expr == "#w" and "50" not in expr
+
+
+def test_numeric_dimension_has_clean_literal():
+    assert _dim_expr(to_feature_json(_w_sketch(40), "S")) == "40 mm"
+    assert _dim_expr(to_feature_json(_w_sketch(12.5), "S")) == "12.5 mm"
+
+
+def test_variable_change_needs_no_reserialization(env):
+    ctx, backend, _ = env
+    backend._doc(REF).variables["w"] = "50 mm"
+    ctx.read(REF)
+    spec = {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [50, 0]}],
+            "dimensions": [{"type": "length", "ref": "l", "value": "#w"}]}
+    assert cad_sketch(ctx, REF, "S", spec, apply=True)["applied"] is True
+    mv = ctx.read(REF).microversion
+    backend.set_variable(REF, "w", "80 mm", mv)
+    assert _dim_expr(to_feature_json(_w_sketch("#w"), "S")) == "#w"
+
+
+def test_fake_sketch_recognised_by_outline(env):
+    from onshape_cad_mcp.outline import render_outline
+    ctx, _, _ = env
+    ctx.read(REF)
+    cad_sketch(ctx, REF, "Base", SPEC, apply=True)
+    assert "not assessed" in render_outline(ctx.read(REF), [])
+
+
+def test_zero_budget_returns_error_dict(tmp_path):
+    ledger = Ledger(tmp_path / "l.json", 0)
+    backend = FakeBackend(ledger)
+    ctx = Context(backend, DocCache(backend), ledger, Config(budget=0))
+    out = cad_sketch(ctx, REF, "S", SPEC)
+    assert out["applied"] is False and "budget" in out["error"]
+    assert out["budget_left"] == 0

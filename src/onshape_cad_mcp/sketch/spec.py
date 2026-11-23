@@ -54,6 +54,7 @@ class Dimension:
     type: str
     refs: list[str]
     value: float
+    expr: str | None = None  # original "#name" variable reference, if any
 
 
 @dataclass
@@ -191,6 +192,7 @@ def parse_sketch_spec(spec: dict, variables: dict[str, float]) -> Sketch:
         for r in refs:
             resolve_ref(sketch, r, f"dimension #{j + 1} ({dtype})")
         val = d.get("value")
+        expr = None
         if isinstance(val, str):
             name = val[1:] if val.startswith("#") else None
             if name is None:
@@ -199,5 +201,6 @@ def parse_sketch_spec(spec: dict, variables: dict[str, float]) -> Sketch:
             if name not in variables:
                 raise SketchSpecError(f"dimension #{j + 1}: undefined variable {name!r}")
             val = variables[name]
-        sketch.dimensions.append(Dimension(dtype, refs, _number(val, f"dimension #{j + 1} value")))
+            expr = "#" + name
+        sketch.dimensions.append(Dimension(dtype, refs, _number(val, f"dimension #{j + 1} value"), expr))
     return sketch

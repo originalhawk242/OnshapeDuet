@@ -7,7 +7,10 @@ live-verified for its own use. Treat every shape here as a hypothesis until
 Task 12 confirms it.
 
 Units: spec numbers are millimetres; geometry is emitted in metres and
-dimension expressions carry an explicit "mm" unit.
+dimension expressions carry an explicit "mm" unit. A dimension that came from a
+"#name" variable reference keeps it as the Onshape expression ("#name"), so a
+later variable change drives the sketch; the numeric value is only used for the
+local solve. The "#name" expression syntax is unverified until Task 12.
 """
 from __future__ import annotations
 
@@ -33,9 +36,14 @@ def _origin(pid: str) -> dict:
             "queries": [{"btType": "BTMIndividualQuery-138", "deterministicIds": [ORIGIN_VERTEX]}]}
 
 
-def _qty(value: float) -> dict:
+def _num(value: float) -> str:
+    text = f"{value:.12f}".rstrip("0").rstrip(".")
+    return "0" if text in ("", "-0") else text
+
+
+def _qty(dim) -> dict:
     # The driving value of every linear dimension lives under parameterId "length".
-    return {"btType": "BTMParameterQuantity-147", "expression": f"{value!r} mm",
+    return {"btType": "BTMParameterQuantity-147", "expression": dim.expr if dim.expr else f"{_num(dim.value)} mm",
             "parameterId": "length", "isInteger": False}
 
 
@@ -108,12 +116,12 @@ def to_feature_json(sketch: Sketch, name: str) -> dict:
                 _str(d.refs[0], "localFirst"),
                 {"btType": "BTMParameterEnum-145", "value": "MINIMUM",
                  "enumName": "DimensionDirection", "parameterId": "direction"},
-                _qty(d.value),
+                _qty(d),
                 {"btType": "BTMParameterEnum-145", "value": "ALIGNED",
                  "enumName": "DimensionAlignment", "parameterId": "alignment"}]))
         elif d.type == "diameter":
             _need(d.refs, 1, what)
-            constraints.append(_con("DIAMETER", eid, [_str(d.refs[0], "localFirst"), _qty(d.value)]))
+            constraints.append(_con("DIAMETER", eid, [_str(d.refs[0], "localFirst"), _qty(d)]))
         elif d.type in ("distance_h", "distance_v"):
             direction = _direction("HORIZONTAL" if d.type == "distance_h" else "VERTICAL")
             if len(d.refs) == 1:  # point to the sketch origin
@@ -121,7 +129,7 @@ def to_feature_json(sketch: Sketch, name: str) -> dict:
             else:
                 _need(d.refs, 2, what)
                 first, second = _str(d.refs[0], "localFirst"), _str(d.refs[1], "localSecond")
-            constraints.append(_con("DISTANCE", eid, [first, second, direction, _qty(d.value)]))
+            constraints.append(_con("DISTANCE", eid, [first, second, direction, _qty(d)]))
         else:
             raise SketchSpecError(f"{what}: cannot serialise")
     plane_id = PLANES.get(sketch.plane, sketch.plane)

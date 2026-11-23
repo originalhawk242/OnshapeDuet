@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .backends.base import Backend, StaleVersion
-from .budget import Ledger
+from .budget import BudgetExceeded, Ledger
 from .cache import DocCache
 from .config import Config
 from .docref import DocRef
@@ -49,7 +49,7 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
         sketch = parse_sketch_spec(spec, variables)
         report = analyze(sketch)
         feature_json = to_feature_json(sketch, name)
-    except SketchSpecError as e:
+    except (SketchSpecError, BudgetExceeded) as e:
         return _reply(ctx, start, False, error=clean(e, 300))
 
     findings: list = []  # Task 9 hook: lint(sketch, report) -> findings goes here.
@@ -59,6 +59,8 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
 
     try:
         result = ctx.backend.add_feature(ref, feature_json, expected_microversion=ctx.last_read[ref])
+    except BudgetExceeded as e:
+        return _reply(ctx, start, False, error=clean(e, 300), **extra)
     except StaleVersion:
         return _reply(ctx, start, False,
                       error="stale: the document changed since it was last read; "
