@@ -1,0 +1,29 @@
+{
+  "fs_eval": {
+    "btType": "BTFeatureScriptEvalResponse-1859",
+    "rejectMicroversionSkew": false,
+    "microversionSkew": false,
+    "console": "",
+    "result": {
+      "btType": "com.belmonttech.serialize.fsvalue.BTFSValueArray",
+      "typeTag": "",
+      "value": [
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "2"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(1, 2, 3)"
+        }
+      ]
+    },
+    "libraryVersion": 3132,
+    "serializationVersion": "1.2.10",
+    "sourceMicroversion": "8829152ac14960b05ef9d633",
+    "notices": []
+  },
+  "fs_eval_request_note": "queries must be a JSON object ({}), not a list: a list gives HTTP 400"
+}

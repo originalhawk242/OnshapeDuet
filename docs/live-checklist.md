@@ -133,3 +133,16 @@ write), 1 once the backstop is removed.
 - **Real-newline feature name (verified live via API):** collapsed to one outline line, no forged line.
 - **Variable create reply** carries a new `sourceMicroversion`; the re-read demand after create is the
   cached-list rule, not a missing version. Variable update dropping UI default params is harmless.
+
+## Typed features: captured facts (2026-11-24)
+
+Ground truth for the typed feature tools is Onshape's own featurespecs, not hand-built UI features (owner's decision).
+Captured from the foundation test document with `scripts/capture_features.py` (68 of 75 budget used afterwards).
+
+- `GET /api/v6/partstudios/d/{d}/w/{w}/e/{e}/featurespecs` works. All 13 wanted specs are present (`BTFeatureSpec-129`) in
+  `tests/fixtures/feature_specs.json.gz`, as `{"kept": [...], "featureTypes_seen": [...]}`, gzipped because the hole spec alone is about 6 MB.
+- `tests/fixtures/doc_features.json` is the raw feature list of that document (sketches and variables from the foundation tests).
+- (Q2) `POST .../featurescript` needs `"queries": {}` (a JSON object). A list gives HTTP 400. The reply is
+  `BTFeatureScriptEvalResponse-1859` with `result` = `{"btType": "com.belmonttech.serialize.fsvalue.BTFSValueArray", "value": [{"btType": "com.belmonttech.serialize.fsvalue.BTFSValueString", "value": "2"}, ...]}`.
+  `toString(vector(1, 2, 3))` renders as `"(1, 2, 3)"`. The reply also carries `sourceMicroversion` and `serializationVersion` (`1.2.10` live; the code sends `1.1.23` for writes).
+- (Q1) Whether `queryString` selections persist: still open. It is answered by live-applying `build_extrude` right after Task 7 and `build_fillet` after Task 10.
