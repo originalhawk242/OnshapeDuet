@@ -47,6 +47,10 @@ def _qty(dim) -> dict:
             "parameterId": "length", "isInteger": False}
 
 
+def _label(pid: str, expr: str) -> dict:
+    return {"btType": "BTMParameterQuantity-147", "expression": expr, "parameterId": pid, "isInteger": False}
+
+
 def _direction(d: str) -> dict:
     return {"btType": "BTMParameterEnum-145", "value": d,
             "enumName": "DimensionDirection", "parameterId": "direction"}
@@ -134,7 +138,11 @@ def to_feature_json(sketch: Sketch, name: str) -> dict:
                  "enumName": "DimensionAlignment", "parameterId": "alignment"}]))
         elif d.type == "diameter":
             _need(d.refs, 1, what)
-            constraints.append(_con("DIAMETER", eid, [_str(d.refs[0], "localFirst"), _qty(d)]))
+            # Live: a UI-made DIAMETER has labelRatio (radial multiple, >1 = outside the
+            # circle) and labelAngle (rad); without them the label is not drawn.
+            constraints.append(_con("DIAMETER", eid, [_str(d.refs[0], "localFirst"), _qty(d),
+                                                      _label("labelRatio", "1.8"),
+                                                      _label("labelAngle", "-0.7*rad")]))
         elif d.type in ("distance_h", "distance_v"):
             direction = _direction("HORIZONTAL" if d.type == "distance_h" else "VERTICAL")
             k = 0 if d.type == "distance_h" else 1

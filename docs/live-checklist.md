@@ -127,3 +127,9 @@ write), 1 once the backstop is removed.
 - Variables: `assignVariable` feature, name template `#name = #value`, params `name`
   (string), `variableType` (enum LENGTH), `lengthValue` (quantity). Create and update
   both verified. Create's reply carries no exact new version, so a re-read is demanded.
+- **Diameter label (verified live):** a DIAMETER needs `labelRatio` (radial multiple, >1 = outside the
+  circle) and `labelAngle` (`<n>*rad`) or the dimension is constrained but not drawn. We now send
+  1.8 and -0.7*rad. `labelDistance` is for LENGTH/DISTANCE only.
+- **Real-newline feature name (verified live via API):** collapsed to one outline line, no forged line.
+- **Variable create reply** carries a new `sourceMicroversion`; the re-read demand after create is the
+  cached-list rule, not a missing version. Variable update dropping UI default params is harmless.

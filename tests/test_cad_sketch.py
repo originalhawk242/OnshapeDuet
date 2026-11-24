@@ -392,3 +392,11 @@ def test_budget_exhausted_mid_apply_reports_numbers(tmp_path):
     assert out["applied"] is False and "budget" in out["error"]
     assert out["requests"] == 0 and out["budget_left"] == 0
     assert backend.calls["add_feature"] == 0
+
+
+def test_diameter_dimension_carries_label_placement():
+    # Live: a UI-made DIAMETER has labelRatio and labelAngle; without them the label is not drawn.
+    feat = to_feature_json(parse_sketch_spec(SPEC, {}), "S1")
+    dia = next(c for c in feat["constraints"] if c["constraintType"] == "DIAMETER")
+    ids = {p["parameterId"] for p in dia["parameters"]}
+    assert {"localFirst", "length", "labelRatio", "labelAngle"} <= ids
