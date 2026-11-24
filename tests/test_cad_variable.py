@@ -46,7 +46,7 @@ def test_dry_run_shows_old_and_new(env):
     assert out["applied"] is False and out["old"] == "10 mm" and out["new"] == "20 mm"
     assert out["name"] == "w"
     assert backend.calls["set_variable"] == 0
-    assert out["requests"] == 1 and out["budget_left"] == ledger.remaining == 99
+    assert out["requests"] == 2 and out["budget_left"] == ledger.remaining == 98  # one read, no prior cad_read
     assert cad_variable(ctx, REF, "zz", "1 mm")["old"] is None
 
 

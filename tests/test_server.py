@@ -108,7 +108,7 @@ def flaky_ctx(tmp_path, fail):
     return Context(backend, DocCache(backend), ledger, Config(budget=50)), ledger
 
 
-@pytest.mark.parametrize("fail", [{"list_features"}, {"get_variables"}])
+@pytest.mark.parametrize("fail", [{"list_features"}, {"get_microversion"}])
 def test_read_transport_error_returns_error_and_counts(tmp_path, fail):
     ctx, ledger = flaky_ctx(tmp_path, fail)
     out = cad_read(ctx, REF)
@@ -120,8 +120,10 @@ def test_read_transport_error_returns_error_and_counts(tmp_path, fail):
 
 def test_sketch_and_variable_transport_errors(tmp_path):
     from onshape_cad_mcp.tools import cad_sketch
-    ctx, ledger = flaky_ctx(tmp_path, {"get_variables"})
-    for i, out in enumerate((cad_sketch(ctx, REF, "s", {}), cad_variable(ctx, REF, "w", "1 mm"))):
+    ctx, ledger = flaky_ctx(tmp_path, {"get_microversion"})
+    spec = {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [5, 0]}],
+            "dimensions": [{"type": "length", "ref": "l", "value": "#w"}]}
+    for i, out in enumerate((cad_sketch(ctx, REF, "s", spec), cad_variable(ctx, REF, "w", "1 mm"))):
         assert out["applied"] is False and out["error"]
         assert out["requests"] == 1 and out["budget_left"] == 49 - i
 
@@ -155,3 +157,79 @@ def test_main_bad_config_exits_cleanly(tmp_path, monkeypatch, capsys):
         server.main()
     assert e.value.code != 0
     assert str(cfg) in capsys.readouterr().err
+
+
+# --- final-review fixes: I6 (frugality: one feature-list fetch per version) ---
+
+def test_cad_read_costs_2_on_fresh_document_and_1_when_unchanged(tmp_path):
+    ctx, backend, ledger = make(tmp_path)
+    backend._doc(REF).variables["w"] = "10 mm"
+    out = cad_read(ctx, REF)
+    assert out.splitlines()[-1].startswith("requests used: 2")
+    assert backend.calls["get_variables"] == 0
+    assert "w = 10 mm" in out
+    out = cad_read(ctx, REF)
+    assert out.splitlines()[-1].startswith("requests used: 1")
+    assert ledger.used == 3
+
+
+def test_dry_runs_after_a_read_cost_zero_requests(tmp_path):
+    from onshape_cad_mcp.tools import cad_sketch
+    ctx, backend, ledger = make(tmp_path)
+    backend._doc(REF).variables["w"] = "50 mm"
+    cad_read(ctx, REF)
+    used = ledger.used
+    v = cad_variable(ctx, REF, "w", "60 mm")
+    s = cad_sketch(ctx, REF, "S", {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [50, 0]}],
+                                   "dimensions": [{"type": "length", "ref": "l", "value": "#w"}]})
+    assert ledger.used == used
+    assert v["requests"] == 0 and s["requests"] == 0
+    assert v["old"] == "50 mm" and "error" not in s
+    assert v["based_on_version"] == s["based_on_version"] == ctx.last_read[REF]
+
+
+def test_dry_run_without_prior_read_costs_one_read_and_does_not_count_as_read(tmp_path):
+    ctx, backend, _ = make(tmp_path)
+    out = cad_variable(ctx, REF, "w", "1 mm")
+    assert out["requests"] == 2 and out["based_on_version"] == "mv0"
+    assert REF not in ctx.last_read
+    again = cad_variable(ctx, REF, "w", "1 mm")  # cache now warm for the version but...
+    assert cad_variable(ctx, REF, "w", "1 mm", apply=True)["error"].startswith("read the document first")
+
+
+def test_apply_costs_only_the_write(tmp_path):
+    ctx, backend, ledger = make(tmp_path)
+    cad_read(ctx, REF)
+    used = ledger.used
+    out = cad_variable(ctx, REF, "w", "1 mm", apply=True)
+    assert out["applied"] is True and out["requests"] == 1 and ledger.used == used + 1
+
+
+def test_variable_update_passes_existing_feature_id(tmp_path):
+    seen = {}
+
+    class Spy(FakeBackend):
+        def set_variable(self, ref, name, expression, expected_microversion, feature_id=None):
+            seen["fid"] = feature_id
+            return super().set_variable(ref, name, expression, expected_microversion, feature_id)
+
+    ledger = Ledger(tmp_path / "l.json", 100)
+    backend = Spy(ledger)
+    ctx = Context(backend, DocCache(backend), ledger, Config(budget=100))
+    backend._doc(REF).variables["w"] = "10 mm"
+    cad_read(ctx, REF)
+    cad_variable(ctx, REF, "w", "20 mm", apply=True)
+    assert seen["fid"] == "F1"
+
+
+def test_unreferenced_derived_variable_does_not_block_sketches(tmp_path):
+    from onshape_cad_mcp.tools import cad_sketch
+    ctx, backend, _ = make(tmp_path)
+    backend._doc(REF).variables["w"] = "10 mm"
+    backend._doc(REF).variables["h"] = "#w * 2"
+    spec = {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [10, 0]}],
+            "dimensions": [{"type": "length", "ref": "l", "value": "#w"}]}
+    assert "error" not in cad_sketch(ctx, REF, "S", spec)
+    bad = {**spec, "dimensions": [{"type": "length", "ref": "l", "value": "#h"}]}
+    out = cad_sketch(ctx, REF, "S", bad)
+    assert "cannot evaluate" in out["error"] and "'h'" in out["error"]

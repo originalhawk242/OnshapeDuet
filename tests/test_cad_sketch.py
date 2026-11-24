@@ -79,12 +79,12 @@ def test_response_reports_requests_and_budget_left(env):
     ctx, backend, ledger = env
     before = ledger.used
     out = cad_sketch(ctx, REF, "S1", SPEC)
-    assert out["requests"] == ledger.used - before == 1  # get_variables only
-    assert out["budget_left"] == ledger.remaining == 99
+    assert out["requests"] == ledger.used - before == 0  # dry run, no variable referenced: free
+    assert out["budget_left"] == ledger.remaining == 100
     ctx.read(REF)
     before = ledger.used
     out = cad_sketch(ctx, REF, "S1", SPEC, apply=True)
-    assert out["requests"] == ledger.used - before == 2  # get_variables + add_feature
+    assert out["requests"] == ledger.used - before == 1  # the write only
 
 
 def test_two_successive_applies_after_one_read(env):
@@ -182,7 +182,10 @@ def test_zero_budget_returns_error_dict(tmp_path):
     ledger = Ledger(tmp_path / "l.json", 0)
     backend = FakeBackend(ledger)
     ctx = Context(backend, DocCache(backend), ledger, Config(budget=0))
-    out = cad_sketch(ctx, REF, "S", SPEC)
+    assert cad_sketch(ctx, REF, "S", SPEC)["requests"] == 0  # a dry run without variables is free
+    spec = {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [5, 0]}],
+            "dimensions": [{"type": "length", "ref": "l", "value": "#w"}]}
+    out = cad_sketch(ctx, REF, "S", spec)
     assert out["applied"] is False and "budget" in out["error"]
     assert out["budget_left"] == 0
 

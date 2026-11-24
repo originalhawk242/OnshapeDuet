@@ -24,8 +24,10 @@ from .model import FeatureList
 from .outline import render_outline
 from .sketch.serialize import to_feature_json
 from .sketch.solver import analyze
-from .sketch.spec import SketchSpecError, evaluate_variables, parse_sketch_spec
+from .sketch.spec import (SketchSpecError, evaluate_variables, parse_sketch_spec,
+                          referenced_variables)
 from .textsafe import clean
+from .variables import find_variable, variables_from_features
 
 
 @dataclass
@@ -41,6 +43,21 @@ class Context:
         fl = self.cache.read(ref)
         self.last_read[ref] = fl.microversion
         return fl
+
+    def snapshot(self, ref: DocRef) -> tuple[FeatureList, str]:
+        """(feature list, version it is based on) for dry runs and variable lookups.
+
+        Zero requests when the cache still holds the version Claude last read;
+        otherwise one cache read (2 requests at most). Unlike `read`, this does
+        NOT count as Claude having read the document, so last_read is untouched.
+        """
+        mv = self.last_read.get(ref)
+        if mv is not None:
+            fl = self.cache.peek(ref)
+            if fl is not None and fl.microversion == mv:
+                return fl, mv
+        fl = self.cache.read(ref)
+        return fl, fl.microversion
 
 
 _STALE = ("stale: the document changed since it was last read; "
@@ -90,8 +107,14 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
     start = _start(ctx)
     if apply and ref not in ctx.last_read:
         return _reply(ctx, start, False, error="read the document first (cad_read) before applying")
+    based_on: dict = {}
     try:
-        variables = evaluate_variables(ctx.backend.get_variables(ref))
+        wanted = referenced_variables(spec)
+        variables: dict[str, float] = {}
+        if wanted:  # no '#variable' reference: the document is not consulted at all
+            fl, based = ctx.snapshot(ref)
+            based_on = {"based_on_version": clean(based, 64)}
+            variables = evaluate_variables(variables_from_features(fl), only=wanted)
         sketch = parse_sketch_spec(spec, variables)
         report = analyze(sketch)
         feature_json = to_feature_json(sketch, name)
@@ -100,7 +123,7 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
 
     findings = lint_sketch(spec, report, name)
     extra = {"dof": report.dof, "findings": [f.to_dict() for f in findings],
-             "not_assessed": [clean(i, 60) for i in report.not_assessed]}
+             "not_assessed": [clean(i, 60) for i in report.not_assessed], **based_on}
     refusals = [f for f in findings if f.level == "refuse"]
     if refusals:
         # Dry run or apply: nothing is written while a refuse finding stands.
@@ -151,18 +174,21 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     if apply and ref not in ctx.last_read:
         return _reply(ctx, start, False, error="read the document first (cad_read) before applying")
     try:
-        existing = {v.name: v.expression for v in ctx.backend.get_variables(ref)}
+        fl, based = ctx.snapshot(ref)
     except _FAILURES as e:
         return _reply(ctx, start, False, error=clean(e, 300))
-    old = existing.get(name)
+    current = {v.name: v.expression for v in variables_from_features(fl)}
+    old = current.get(name)
+    existing = find_variable(fl, name)
     extra = {"name": name, "old": None if old is None else clean(old, 200),
-             "new": expression, "findings": []}
+             "new": expression, "findings": [], "based_on_version": clean(based, 64)}
     if not apply:
         return _reply(ctx, start, False, **extra)
 
     try:
         new_mv = ctx.backend.set_variable(ref, name, expression,
-                                          expected_microversion=ctx.last_read[ref])
+                                          expected_microversion=ctx.last_read[ref],
+                                          feature_id=existing.id if existing else None)
     except PostWriteError as e:
         return _unknown(ctx, start, ref, str(e), **extra)
     except StaleVersion as e:
@@ -200,8 +226,7 @@ def cad_read(ctx: Context, ref: DocRef) -> str:
     start = _start(ctx)
     try:
         fl = ctx.read(ref)
-        variables = ctx.backend.get_variables(ref)
-        body = render_outline(fl, variables)
+        body = render_outline(fl, variables_from_features(fl))
     except (*_FAILURES, ValueError) as e:
         body = f"error: {clean(e, 300)}"
     used, left = _ledger_numbers(ctx)

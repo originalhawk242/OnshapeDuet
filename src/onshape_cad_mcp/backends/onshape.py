@@ -23,6 +23,8 @@ from ..budget import BudgetExceeded, Ledger
 from ..config import Config
 from ..docref import DocRef, is_valid_id
 from ..model import Feature, FeatureList, Variable, WriteResult
+from ..variables import (VARIABLE_EXPR_PARAM, VARIABLE_FEATURE_TYPE, VARIABLE_NAME_PREFIX,
+                         variables_from_features)
 from .base import PostWriteError, StaleVersion
 
 # --- Unverified endpoint paths (Task 12) -----------------------------------
@@ -52,9 +54,6 @@ def microversion_path(ref: DocRef) -> str:
 
 # --- Unverified JSON shape assumptions (Task 12) ---------------------------
 SERIALIZATION_VERSION = "1.1.23"
-VARIABLE_FEATURE_TYPE = "assign"
-VARIABLE_NAME_PREFIX = "#"  # assign features are named "#<var>"
-VARIABLE_EXPR_PARAM = "value"
 STALE_STATUSES = (409, 412)
 MAX_REDIRECTS = 5
 JSON = "application/json"
@@ -76,16 +75,34 @@ def sign(method: str, path: str, query: str, content_type: str, date: str,
     return f"On {access}:HmacSHA256:{base64.b64encode(mac).decode()}"
 
 
+def _s(x: object) -> str:
+    return x if isinstance(x, str) else ""
+
+
+def _flatten_param(p: dict) -> object:
+    """Editable value of a parameter: its expression (quantities), else its scalar
+    value (strings, enums, booleans, numbers); anything else (queries...) stays raw."""
+    if isinstance(p.get("expression"), str):
+        return p["expression"]
+    val = p.get("value")
+    if isinstance(val, (str, int, float, bool)):
+        return val
+    return p
+
+
 def _parse_feature(f: dict, states: dict) -> Feature:
-    fid = f.get("featureId", "")
-    st = states.get(fid) or {}
-    return Feature(
-        id=fid,
-        type=f.get("featureType", ""),
-        name=f.get("name", ""),
-        status=st.get("featureStatus", "OK"),
-        params={p.get("parameterId", ""): p for p in f.get("parameters", [])},
-    )
+    try:
+        fid = _s(f.get("featureId"))
+        st = states.get(fid) or {}
+        return Feature(
+            id=fid,
+            type=_s(f.get("featureType")),
+            name=_s(f.get("name")),
+            status=_s(st.get("featureStatus")) or "OK",
+            params={_s(p.get("parameterId")): _flatten_param(p) for p in f.get("parameters", [])},
+        )
+    except (AttributeError, KeyError, TypeError) as e:
+        raise RuntimeError(f"unexpected Onshape response: malformed feature ({type(e).__name__})") from e
 
 
 class OnshapeBackend:
@@ -203,23 +220,17 @@ class OnshapeBackend:
 
     def list_features(self, ref: DocRef) -> FeatureList:
         data = self._ok(self._request("GET", features_path(ref)))
-        states = data.get("featureStates", {})
-        return FeatureList(data.get("sourceMicroversion", ""),
-                           [_parse_feature(f, states) for f in data.get("features", [])])
-
-    @staticmethod
-    def _variables_of(data: dict) -> list[Variable]:
-        out = []
-        for f in data.get("features", []):
-            if f.get("featureType") != VARIABLE_FEATURE_TYPE:
-                continue
-            expr = next((p.get("expression", "") for p in f.get("parameters", [])
-                         if p.get("parameterId") == VARIABLE_EXPR_PARAM), "")
-            out.append(Variable(f.get("name", "").removeprefix(VARIABLE_NAME_PREFIX), expr))
-        return out
+        mv = data.get("sourceMicroversion")
+        if not isinstance(mv, str) or not mv:
+            raise RuntimeError("unexpected Onshape response: missing sourceMicroversion")
+        states = data.get("featureStates") or {}
+        feats = data.get("features") or []
+        if not isinstance(states, dict) or not isinstance(feats, list):
+            raise RuntimeError("unexpected Onshape response: malformed feature list")
+        return FeatureList(mv, [_parse_feature(f, states) for f in feats])
 
     def get_variables(self, ref: DocRef) -> list[Variable]:
-        return self._variables_of(self._ok(self._request("GET", features_path(ref))))
+        return variables_from_features(self.list_features(ref))
 
     def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
         body = {"feature": feature_json, "serializationVersion": SERIALIZATION_VERSION}
@@ -236,14 +247,11 @@ class OnshapeBackend:
             raise PostWriteError(f"{e}; the write may have landed") from e
         return WriteResult(feat, self._new_microversion(ref, data, expected_microversion))
 
-    def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str) -> str:
+    def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,
+                     feature_id: str | None = None) -> str:
         # TODO(Task 12): variable feature JSON and update endpoint are unverified.
-        data = self._ok(self._request("GET", features_path(ref)))
-        current = data.get("sourceMicroversion")
-        if not current:
-            raise RuntimeError("unexpected Onshape response: missing sourceMicroversion")
-        if current != expected_microversion:
-            raise StaleVersion(f"expected {expected_microversion}, current {current}")
+        if feature_id is not None and not _FEATURE_ID.fullmatch(feature_id):
+            raise RuntimeError("unexpected Onshape response: bad featureId on existing variable")
         feature = {
             "btType": "BTMFeature-134",
             "featureType": VARIABLE_FEATURE_TYPE,
@@ -251,16 +259,7 @@ class OnshapeBackend:
             "parameters": [{"btType": "BTMParameterQuantity-147", "parameterId": VARIABLE_EXPR_PARAM,
                             "expression": expression}],
         }
-        existing = next((f for f in data.get("features", [])
-                         if f.get("featureType") == VARIABLE_FEATURE_TYPE
-                         and f.get("name") == VARIABLE_NAME_PREFIX + name), None)
         body = {"feature": feature, "serializationVersion": SERIALIZATION_VERSION}
-        if existing is not None:
-            fid = existing.get("featureId")
-            if not isinstance(fid, str) or not _FEATURE_ID.fullmatch(fid):
-                raise RuntimeError("unexpected Onshape response: bad featureId on existing variable")
-            path = feature_update_path(ref, fid)
-        else:
-            path = features_path(ref)
+        path = features_path(ref) if feature_id is None else feature_update_path(ref, feature_id)
         resp = self._write(path, body, expected_microversion)
         return self._new_microversion(ref, resp, expected_microversion)

@@ -2,18 +2,59 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import MutableMapping
 
 from ..budget import Ledger
 from ..docref import DocRef
 from ..model import Feature, FeatureList, Variable, WriteResult
+from ..variables import (VARIABLE_FEATURE_TYPE, find_variable, make_variable_feature,
+                         variables_from_features)
 from .base import StaleVersion
+
+
+class _Variables(MutableMapping):
+    """name -> expression view over the document's variable (assign) features, so
+    variables live in the feature list exactly as they do in Onshape."""
+
+    def __init__(self, doc: "_Doc") -> None:
+        self._doc = doc
+
+    def _fl(self) -> FeatureList:
+        return FeatureList("", self._doc.features)
+
+    def __getitem__(self, name: str) -> str:
+        for v in variables_from_features(self._fl()):
+            if v.name == name:
+                return v.expression
+        raise KeyError(name)
+
+    def __setitem__(self, name: str, expression: str) -> None:
+        feats = self._doc.features
+        existing = find_variable(self._fl(), name)
+        new = make_variable_feature(existing.id if existing else f"F{len(feats) + 1}", name, expression)
+        if existing is None:
+            feats.append(new)
+        else:
+            feats[feats.index(existing)] = new
+
+    def __delitem__(self, name: str) -> None:
+        existing = find_variable(self._fl(), name)
+        if existing is None:
+            raise KeyError(name)
+        self._doc.features.remove(existing)
+
+    def __iter__(self):
+        return iter([v.name for v in variables_from_features(self._fl())])
+
+    def __len__(self) -> int:
+        return sum(1 for f in self._doc.features if f.type == VARIABLE_FEATURE_TYPE)
 
 
 class _Doc:
     def __init__(self) -> None:
         self.version = 0
         self.features: list[Feature] = []
-        self.variables: dict[str, str] = {}
+        self.variables = _Variables(self)
 
 
 class FakeBackend:
@@ -51,7 +92,7 @@ class FakeBackend:
 
     def get_variables(self, ref: DocRef) -> list[Variable]:
         self._enter("get_variables")
-        return [Variable(n, e) for n, e in self._doc(ref).variables.items()]
+        return variables_from_features(FeatureList("", self._doc(ref).features))
 
     def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
         self._enter("add_feature")
@@ -68,7 +109,8 @@ class FakeBackend:
         d.version += 1
         return WriteResult(feat, self._mv(d))
 
-    def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str) -> str:
+    def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,
+                     feature_id: str | None = None) -> str:
         self._enter("set_variable")
         d = self._doc(ref)
         self._check(d, expected_microversion)

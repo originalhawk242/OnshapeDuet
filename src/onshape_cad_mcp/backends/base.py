@@ -35,6 +35,10 @@ class Backend(Protocol):
         """Raises StaleVersion if expected_microversion is not current."""
         ...
 
-    def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str) -> str:
-        """Returns the new microversion. Raises StaleVersion if stale."""
+    def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,
+                     feature_id: str | None = None) -> str:
+        """Returns the new microversion. Raises StaleVersion if stale.
+
+        feature_id is the existing variable's feature (from the last-read feature
+        list) to update in place; None creates a new variable."""
         ...

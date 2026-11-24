@@ -220,29 +220,21 @@ def _vars_get(mv="mv1", feats=()):
     return {"sourceMicroversion": mv, "featureStates": {}, "features": list(feats)}
 
 
-def test_set_variable_client_side_stale(tmp_path):
-    calls = []
+def test_set_variable_costs_only_the_post(tmp_path):
+    """No pre-read GET any more (I6): staleness is enforced by the pinned write."""
+    methods = []
+
     def handler(req):
-        calls.append(req.method)
-        return httpx.Response(200, json=_vars_get("mv2"))
-    b, _ = make(tmp_path, handler)
-    with pytest.raises(StaleVersion):
-        b.set_variable(REF, "w", "1 mm", "mv1")
-    assert calls == ["GET"]
-
-
-def test_set_variable_missing_source_microversion_is_not_stale(tmp_path):
-    b, _ = make(tmp_path, lambda r: httpx.Response(200, json={"features": []}))
-    with pytest.raises(RuntimeError, match="unexpected Onshape response") as ei:
-        b.set_variable(REF, "w", "1 mm", "mv1")
-    assert not isinstance(ei.value, StaleVersion)
+        methods.append(req.method)
+        return httpx.Response(200, json={"sourceMicroversion": "mv2"})
+    b, ledger = make(tmp_path, handler)
+    assert b.set_variable(REF, "w", "1 mm", "mv1") == "mv2"
+    assert methods == ["POST"] and ledger.used == 1
 
 
 @pytest.mark.parametrize("status", [409, 412])
 def test_set_variable_write_stale_maps(tmp_path, status):
     def handler(req):
-        if req.method == "GET":
-            return httpx.Response(200, json=_vars_get())
         return httpx.Response(status, json={})
     b, _ = make(tmp_path, handler)
     with pytest.raises(StaleVersion):
@@ -251,27 +243,23 @@ def test_set_variable_write_stale_maps(tmp_path, status):
 
 def test_set_variable_create_vs_update_path(tmp_path):
     posts = []
-    def make_handler(feats):
-        def handler(req):
-            if req.method == "GET":
-                return httpx.Response(200, json=_vars_get(feats=feats))
-            posts.append(req.url.path)
-            return httpx.Response(200, json={"sourceMicroversion": "mv9"})
-        return handler
-    b, _ = make(tmp_path, make_handler([]))
+
+    def handler(req):
+        posts.append(req.url.path)
+        return httpx.Response(200, json={"sourceMicroversion": "mv9"})
+    b, _ = make(tmp_path, handler)
     assert b.set_variable(REF, "w", "1 mm", "mv1") == "mv9"
-    existing = [{"featureId": "FabC_12", "featureType": "assign", "name": "#w", "parameters": []}]
-    b, _ = make(tmp_path, make_handler(existing))
-    b.set_variable(REF, "w", "2 mm", "mv1")
+    b.set_variable(REF, "w", "2 mm", "mv1", feature_id="FabC_12")
     assert posts[0].endswith("/features")
     assert posts[1].endswith("/features/featureid/FabC_12")
 
 
-def test_set_variable_rejects_malicious_existing_feature_id(tmp_path):
-    bad = [{"featureId": "../../x", "featureType": "assign", "name": "#w", "parameters": []}]
-    b, _ = make(tmp_path, lambda r: httpx.Response(200, json=_vars_get(feats=bad)))
+def test_set_variable_rejects_malicious_feature_id(tmp_path):
+    calls = []
+    b, ledger = make(tmp_path, lambda r: calls.append(r) or httpx.Response(200, json={}))
     with pytest.raises(RuntimeError, match="bad featureId"):
-        b.set_variable(REF, "w", "2 mm", "mv1")
+        b.set_variable(REF, "w", "2 mm", "mv1", feature_id="../../x")
+    assert calls == [] and ledger.used == 0
 
 
 # --- final-review fixes: C1 (version pinning on the wire) and I2 (post-write failures) ---
@@ -399,3 +387,53 @@ def test_nonce_is_25_alphanumerics(tmp_path):
     b, _ = make(tmp_path, handler)
     b.get_microversion(REF)
     assert len(seen[0]) == 25 and seen[0].isalnum()
+
+
+# --- final-review fixes: I3 (param shapes, response parsing) ---
+
+REAL_FEATURES = {"sourceMicroversion": "mv5", "featureStates": {"E1": {"featureStatus": "OK"}}, "features": [
+    {"featureId": "E1", "featureType": "extrude", "name": "Base extrude", "parameters": [
+        {"btType": "BTMParameterQuantity-147", "parameterId": "depth", "expression": "10 mm", "isInteger": False},
+        {"btType": "BTMParameterEnum-145", "parameterId": "endBound", "value": "BLIND", "enumName": "BoundingType"},
+        {"btType": "BTMParameterBoolean-144", "parameterId": "flip", "value": True},
+        {"btType": "BTMParameterString-149", "parameterId": "note", "value": "hi"},
+        {"btType": "BTMParameterQueryList-148", "parameterId": "entities", "queries": [{"x": 1}]}]},
+]}
+
+
+def test_real_param_shapes_are_flattened_and_printed(tmp_path):
+    from onshape_cad_mcp.outline import render_outline
+    b, _ = make(tmp_path, lambda r: httpx.Response(200, json=REAL_FEATURES))
+    fl = b.list_features(REF)
+    p = fl.features[0].params
+    assert p["depth"] == "10 mm" and p["endBound"] == "BLIND" and p["flip"] is True and p["note"] == "hi"
+    assert isinstance(p["entities"], dict)  # queries stay raw
+    out = render_outline(fl, [])
+    assert "depth=10 mm" in out and "endBound=BLIND" in out and "note=hi" in out
+
+
+def test_variables_from_real_shaped_assign_feature(tmp_path):
+    body = {"sourceMicroversion": "mv1", "features": [
+        {"featureId": "A", "featureType": "assign", "name": "#w", "parameters": [
+            {"btType": "BTMParameterQuantity-147", "parameterId": "value", "expression": "10 mm"}]}]}
+    b, _ = make(tmp_path, lambda r: httpx.Response(200, json=body))
+    assert [(v.name, v.expression) for v in b.get_variables(REF)] == [("w", "10 mm")]
+
+
+def test_missing_source_microversion_in_feature_list_raises(tmp_path):
+    b, _ = make(tmp_path, lambda r: httpx.Response(200, json={"features": []}))
+    with pytest.raises(RuntimeError, match="unexpected Onshape response"):
+        b.list_features(REF)
+
+
+@pytest.mark.parametrize("body", [
+    {"sourceMicroversion": "m", "features": ["oops"]},
+    {"sourceMicroversion": "m", "features": [{"featureId": "A", "parameters": [1]}]},
+    {"sourceMicroversion": "m", "features": [{"featureId": "A", "parameters": "x"}]},
+    {"sourceMicroversion": "m", "features": 5},
+    {"sourceMicroversion": "m", "features": [], "featureStates": [1]},
+])
+def test_malformed_feature_list_is_wrapped(tmp_path, body):
+    b, _ = make(tmp_path, lambda r: httpx.Response(200, json=body))
+    with pytest.raises(RuntimeError, match="unexpected Onshape response"):
+        b.list_features(REF)
