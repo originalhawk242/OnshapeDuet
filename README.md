@@ -38,4 +38,5 @@ Register the `onshape-cad-mcp` command as a stdio MCP server in your client. Cre
 ## Docs
 
 - [docs/agent-guide.md](docs/agent-guide.md): how an agent should use the tools.
+- [docs/testing-guide.md](docs/testing-guide.md): step-by-step test plan a fresh Claude session can follow (offline, MCP wiring, live).
 - [docs/live-checklist.md](docs/live-checklist.md): what must still be verified on live Onshape.
