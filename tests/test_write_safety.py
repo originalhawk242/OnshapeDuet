@@ -15,7 +15,8 @@ from onshape_duet.budget import Ledger
 from onshape_duet.cache import DocCache
 from onshape_duet.config import Config
 from onshape_duet.docref import DocRef
-from onshape_duet.tools import Context, cad_sketch, cad_variable
+from onshape_duet.backends.fake import FakeBackend
+from onshape_duet.tools import Context, _apply_feature, _start, cad_sketch, cad_variable
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 SPEC = {"plane": "Front",
@@ -186,3 +187,22 @@ def test_every_unknown_outcome_says_may_have_landed_exactly_once(tmp_path, kind,
     assert out["applied"] == "unknown", out
     assert out["error"].count("may have landed") == 1, out["error"]
     assert "landed" not in out["error"].replace("may have landed", "")
+
+
+@pytest.fixture
+def env(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.json", 100)
+    backend = FakeBackend(ledger)
+    ctx = Context(backend, DocCache(backend), ledger, Config(budget=100))
+    return ctx, backend, ledger
+
+
+def test_apply_feature_reports_regen_error(env):  # Review Focus 1
+    ctx, backend, _ = env
+    ctx.read(REF)
+    backend.next_status = "ERROR"
+    out = _apply_feature(ctx, REF, _start(ctx), {"featureType": "fillet", "name": "R",
+                         "parameters": []}, {"findings": []}, "the fillet")
+    assert out["applied"] is True and out["status"] == "ERROR"
+    assert any(f["code"] == "REGEN_STATUS" for f in out["findings"])
+    assert "the fillet" in out["warning"]

@@ -22,7 +22,7 @@ import httpx
 from ..budget import BudgetExceeded, Ledger
 from ..config import Config
 from ..docref import DocRef, is_valid_id
-from ..model import Feature, FeatureList, Variable, WriteResult
+from ..model import Feature, FeatureList, Variable, WriteResult, flatten_params
 from ..variables import (VARIABLE_EXPR_PARAM, VARIABLE_FEATURE_NAME, VARIABLE_FEATURE_TYPE, VARIABLE_NAME_PARAM,
                          variables_from_features)
 from .base import PostWriteError, StaleVersion
@@ -80,27 +80,19 @@ def _s(x: object) -> str:
     return x if isinstance(x, str) else ""
 
 
-def _flatten_param(p: dict) -> object:
-    """Editable value of a parameter: its expression (quantities), else its scalar
-    value (strings, enums, booleans, numbers); anything else (queries...) stays raw."""
-    if isinstance(p.get("expression"), str):
-        return p["expression"]
-    val = p.get("value")
-    if isinstance(val, (str, int, float, bool)):
-        return val
-    return p
-
-
 def _parse_feature(f: dict, states: dict) -> Feature:
     try:
         fid = _s(f.get("featureId"))
         st = states.get(fid) or {}
+        raw_params = f.get("parameters", [])
+        if not isinstance(raw_params, list) or not all(isinstance(p, dict) for p in raw_params):
+            raise TypeError("parameters must be a list of objects")  # flatten_params would skip these
         return Feature(
             id=fid,
             type=_s(f.get("featureType")),
             name=_s(f.get("name")),
             status=_s(st.get("featureStatus")) or "OK",
-            params={_s(p.get("parameterId")): _flatten_param(p) for p in f.get("parameters", [])},
+            params=flatten_params(raw_params),
         )
     except (AttributeError, KeyError, TypeError) as e:
         raise RuntimeError(f"unexpected Onshape response: malformed feature ({type(e).__name__})") from e

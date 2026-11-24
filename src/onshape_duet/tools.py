@@ -172,6 +172,44 @@ def _backstop(ctx: Context, ref: DocRef, expected: str) -> None:
         raise StaleVersion("document version differs from the version last read")
 
 
+def _apply_feature(ctx: Context, ref: DocRef, start, feature_json: dict, extra: dict,
+                   what: str) -> dict:
+    """Shared apply path for every feature write (lock already held). `extra` must
+    hold a `findings` list; `what` names the written thing in the regen warning."""
+    try:
+        expected = ctx.last_read[ref]
+        _backstop(ctx, ref, expected)
+        result = ctx.backend.add_feature(ref, feature_json, expected_microversion=expected)
+    except PostWriteError as e:
+        return _unknown(ctx, start, ref, str(e), **extra)
+    except StaleVersion as e:
+        if e.may_have_landed:
+            return _unknown(ctx, start, ref, str(e), **extra)
+        return _reply(ctx, start, False, error=_STALE, **extra)
+    except _FAILURES as e:
+        return _reply(ctx, start, False, error=clean(e, 300), **extra)
+    # note_write splices our feature into the cached list; that is only sound
+    # because every write passes expected_microversion (nothing else changed).
+    ctx.reread.pop(ref, None)  # a successful write supersedes any earlier hint
+    if result.exact:
+        ctx.last_read[ref] = result.microversion
+        ctx.cache.note_write(ref, result.microversion, result.feature,
+                             expected_microversion=expected)
+        extra = dict(extra)
+    else:
+        ctx.lose_track(ref, _REFETCHED)
+        extra = {**extra, "note": _REFETCHED}
+    status = clean(result.feature.status, 40)
+    done = {**extra, "feature_id": clean(result.feature.id, 64), "status": status}
+    if status != "OK":
+        warning = (f"applied, but regeneration status is {status}: {what} was written; "
+                   "inspect and fix it, or delete it")
+        done["warning"] = warning
+        done["findings"] = [*extra["findings"],
+                            {"level": "error", "code": "REGEN_STATUS", "message": warning}]
+    return _reply(ctx, start, True, **done)
+
+
 @_locked
 def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = False) -> dict:
     start = _start(ctx)
@@ -205,38 +243,7 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
     if not apply:
         return _reply(ctx, start, False, **extra)
 
-    try:
-        expected = ctx.last_read[ref]
-        _backstop(ctx, ref, expected)
-        result = ctx.backend.add_feature(ref, feature_json, expected_microversion=expected)
-    except PostWriteError as e:
-        return _unknown(ctx, start, ref, str(e), **extra)
-    except StaleVersion as e:
-        if e.may_have_landed:
-            return _unknown(ctx, start, ref, str(e), **extra)
-        return _reply(ctx, start, False, error=_STALE, **extra)
-    except _FAILURES as e:
-        return _reply(ctx, start, False, error=clean(e, 300), **extra)
-    # note_write splices our feature into the cached list; that is only sound
-    # because every write passes expected_microversion (nothing else changed).
-    ctx.reread.pop(ref, None)  # a successful write supersedes any earlier hint
-    if result.exact:
-        ctx.last_read[ref] = result.microversion
-        ctx.cache.note_write(ref, result.microversion, result.feature,
-                             expected_microversion=expected)
-        extra = dict(extra)
-    else:
-        ctx.lose_track(ref, _REFETCHED)
-        extra = {**extra, "note": _REFETCHED}
-    status = clean(result.feature.status, 40)
-    done = {**extra, "feature_id": clean(result.feature.id, 64), "status": status}
-    if status != "OK":
-        warning = (f"applied, but regeneration status is {status}: the sketch was written; "
-                   "inspect and fix it, or delete it")
-        done["warning"] = warning
-        done["findings"] = [*extra["findings"],
-                            {"level": "error", "code": "REGEN_STATUS", "message": warning}]
-    return _reply(ctx, start, True, **done)
+    return _apply_feature(ctx, ref, start, feature_json, extra, "the sketch")
 
 
 @_locked

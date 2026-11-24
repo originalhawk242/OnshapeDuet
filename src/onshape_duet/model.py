@@ -37,3 +37,20 @@ class WriteResult:
     feature: Feature
     microversion: str
     exact: bool = True
+
+
+def _flatten_param(p: dict) -> object:
+    """Editable value of a parameter: its expression (quantities), else its scalar
+    value (strings, enums, booleans, numbers); anything else (queries...) stays raw."""
+    if isinstance(p.get("expression"), str):
+        return p["expression"]
+    val = p.get("value")
+    if isinstance(val, (str, int, float, bool)):
+        return val
+    return p
+
+
+def flatten_params(parameters: list) -> dict[str, object]:
+    """Flatten an Onshape `parameters` list into {parameterId: editable value}."""
+    return {(p.get("parameterId") if isinstance(p.get("parameterId"), str) else ""): _flatten_param(p)
+            for p in parameters if isinstance(p, dict)}

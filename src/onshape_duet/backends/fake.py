@@ -7,7 +7,7 @@ from collections.abc import MutableMapping
 
 from ..budget import Ledger
 from ..docref import DocRef
-from ..model import Feature, FeatureList, Variable, WriteResult
+from ..model import Feature, FeatureList, Variable, WriteResult, flatten_params
 from ..variables import (VARIABLE_FEATURE_TYPE, find_variable, make_variable_feature,
                          variables_from_features)
 from .base import StaleVersion
@@ -69,6 +69,7 @@ class FakeBackend:
         self.ledger = ledger
         self.calls: Counter[str] = Counter()
         self._docs: dict[DocRef, _Doc] = {}
+        self.next_status: str | None = None
 
     def _doc(self, ref: DocRef) -> _Doc:
         return self._docs.setdefault(ref, _Doc())
@@ -105,12 +106,16 @@ class FakeBackend:
         self._enter("add_feature")
         d = self._doc(ref)
         self._check(d, expected_microversion)
+        parameters = feature_json.get("parameters")
+        status = self.next_status or feature_json.get("status", "OK")
+        self.next_status = None
         feat = Feature(
             id=d.new_id(),
-            type=feature_json.get("type") or feature_json.get("featureType") or feature_json.get("btType") or "",
+            type=feature_json.get("featureType") or feature_json.get("type") or feature_json.get("btType") or "",
             name=feature_json.get("name", ""),
-            status=feature_json.get("status", "OK"),
-            params=copy.deepcopy(feature_json.get("params", {})),
+            status=status,
+            params=(flatten_params(parameters) if isinstance(parameters, list)
+                    else copy.deepcopy(feature_json.get("params", {}))),
         )
         d.features.append(feat)
         d.version += 1
