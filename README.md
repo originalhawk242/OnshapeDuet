@@ -4,11 +4,11 @@ A Python MCP server that lets an AI agent read and edit Onshape Part Studios in 
 
 ## What exists
 
-Four tools: `cad_status`, `cad_read` (outline of features and variables), `cad_sketch` (create a sketch from a spec, with a local degrees-of-freedom check and lint) and `cad_variable` (create or update a variable). Writes are dry runs unless `apply=True`, are refused if the document changed since the last `cad_read`, and every HTTP request is counted against a persistent budget before it is sent.
+Tools: `cad_status`, `cad_read` (outline of features and variables), `cad_sketch` (create a sketch from a spec, with a local degrees-of-freedom check and lint), `cad_variable` (create or update a variable), and the generic feature layer: `cad_specs` (native feature types and their parameters), `cad_inspect` (every parameter of one feature), `cad_feature_add` (add a native feature of any type from its spec) and `cad_feature_update` (change named parameters of an existing feature). Writes are dry runs unless `apply=True`, are refused if the document changed since the last `cad_read`, and every HTTP request is counted against a persistent budget before it is sent.
 
 ## What is verified
 
-All of it is verified against an in-memory fake backend and a scripted HTTP transport only (the test suite). **Nothing has been run against live Onshape.** The endpoint paths, JSON shapes, variable model and sketch serialization are assumptions; each one is listed with the exact check to run in [docs/live-checklist.md](docs/live-checklist.md). Until that checklist is done, treat writes as experimental and use a throwaway document. Not implemented: reading existing sketches into DOF reports, features other than sketches and variables, Windows (the ledger needs POSIX file locking), version (`/v/`) URLs.
+All of it is verified against an in-memory fake backend and a scripted HTTP transport only (the test suite). The generic feature tools (`cad_specs`, `cad_inspect`, `cad_feature_add`, `cad_feature_update`) are verified offline only, against the fake backend and a scripted transport, with a hand-written feature-specs fixture. **Nothing has been run against live Onshape.** The endpoint paths, JSON shapes, variable model and sketch serialization are assumptions; each one is listed with the exact check to run in [docs/live-checklist.md](docs/live-checklist.md). Until that checklist is done, treat writes as experimental and use a throwaway document. Not implemented: reading existing sketches into DOF reports, typed tools for features other than sketches and variables (the generic tools cover them), Windows (the ledger needs POSIX file locking), version (`/v/`) URLs.
 
 ## Setup
 
