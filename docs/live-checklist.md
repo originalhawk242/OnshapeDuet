@@ -143,6 +143,17 @@ G2. **Fixture replacement.** `tests/fixtures/featurespecs_UNVERIFIED.json` is ha
    as `{"kept": [...]}` of whole specs. Point the generic tests at it, delete the UNVERIFIED
    file, and confirm the array spec's item specs sit under `parameters`. Pass: suite green on
    the live fixture. 0 requests.
+
+   ANSWERED 2026-11-24 from the typed-features featurespecs capture (76bb554, 13 specs):
+   - enum `namespace` is per parameter (each enum parameter carries its own);
+   - array item specs sit under `parameters`;
+   - OnEqual values are spelled plainly (`PART`, `true`);
+   - most visibility conditions are `BTParameterVisibilityLogical-178` trees, so `HIDDEN_PARAM`
+     stays best effort; a few are a bare `BTParameterVisibilityCondition-177` (always shown);
+   - quantity `defaultValue` carries an empty `expression` plus `value`/`units` (meter, radian
+     in SI), so readable defaults come from the `ranges` entry in millimeter / degree;
+   - custom features have no "::" in `featureType`; `namespace` is a separate field.
+   Still open: the fixture file swap itself, which waits for the merge with typed-features.
 G3. **Add with omitted parameters** (`cad_feature_add` apply, 2 requests, +1 if specs are not
    cached). Add a `cPlane` with only `offset`. Pass: Onshape accepts it and fills the omitted
    parameters, and the defaults the dry run listed (`defaults_applied`) match what
@@ -155,7 +166,10 @@ G4. **Update by sending back the read `raw` JSON with one parameter changed**
 G5. **Update reply.** Does the reply name a new `sourceMicroversion` (exact), as add does?
    Check (a) updating the last feature: the cache is spliced and the next apply works with no
    re-read; (b) updating a middle feature: the reply carries the re-read `note` and the next
-   write is refused until `cad_read`. Pass: both behave so, in 2 requests per apply (+1 if specs are not cached).
+   write is refused until `cad_read`. Also confirm the update reply carries the full `parameters` list of the feature
+   (the cache is only spliced from a reply that has it; otherwise the code refetches and says so)
+   and that its `featureId` is the one updated (a different id is treated as unknown outcome).
+   Pass: both behave so, in 2 requests per apply (+1 if specs are not cached).
 G6. **Raw-parameter shapes `cad_inspect` renders.** On a feature with each, confirm the
    field names: `BTMParameterQueryList` `queries[].queryString` and `deterministicIds`,
    `BTMParameterFeatureList` `featureIds`, `BTMParameterArray` `items[].parameters`. Pass:
