@@ -1,34 +1,25 @@
-"""Dev-only: record ground-truth Onshape feature JSON plus two probes (makes LIVE requests).
+"""Dev-only: record Onshape's own feature specs plus the live feature list (LIVE requests, read-only).
 
 Usage: python scripts/capture_features.py <part-studio-url> <out_dir> [--skip-probes]
 
-(a) GET features -> ui_features.json (verbatim).
-(b) POST a copy of the `Round` fillet named ProbeQS with a queryString selection, re-read it
-    -> probes.json["querystring_write"/"querystring_readback"].
-(c) POST a tiny FeatureScript eval -> probes.json["fs_eval"].
-Afterwards delete the ProbeQS feature in the Onshape UI. Not imported by the package.
+1. GET featurespecs -> feature_specs.json (the specs for the feature types we build).
+2. GET features -> doc_features.json (verbatim).
+3. POST a tiny FeatureScript eval -> probes.json["fs_eval"] (skipped by --skip-probes).
+Nothing is written to the document. Not imported by the package.
 """
 import argparse
-import copy
 import json
 import os
 import sys
 from pathlib import Path
 
-from onshape_duet.backends.onshape import SERIALIZATION_VERSION, features_path
+from onshape_duet.backends.onshape import features_path
 from onshape_duet.docref import parse_url
 from onshape_duet.server import DEFAULT_CONFIG, build_context
 
 SCRIPT = 'function(context is Context, queries is map) { return ["2", toString(vector(1, 2, 3))]; }'
-
-
-def strip_ids(node):
-    """Recursively drop featureId and nodeId keys (a new feature must not carry them)."""
-    if isinstance(node, dict):
-        return {k: strip_ids(v) for k, v in node.items() if k not in ("featureId", "nodeId")}
-    if isinstance(node, list):
-        return [strip_ids(v) for v in node]
-    return node
+WANTED = {"extrude", "revolve", "fillet", "chamfer", "hole", "shell", "linearPattern",
+          "circularPattern", "mirror", "booleanBodies", "cPlane", "newSketch", "assignVariable"}
 
 
 def dump(path: Path, data) -> None:
@@ -36,18 +27,11 @@ def dump(path: Path, data) -> None:
     print(f"wrote {path}")
 
 
-def find(features: list, name: str) -> dict:
-    for f in features:
-        if f.get("name") == name:
-            return f
-    raise SystemExit(f"capture: no feature named {name!r} in the Part Studio")
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("url")
     ap.add_argument("out_dir", type=Path)
-    ap.add_argument("--skip-probes", action="store_true", help="only (a): capture ui_features.json")
+    ap.add_argument("--skip-probes", action="store_true", help="skip step 3 (the featurescript eval)")
     args = ap.parse_args()
 
     env = os.environ.get("ONSHAPE_DUET_CONFIG")
@@ -55,41 +39,25 @@ def main() -> None:
     be, ref = ctx.backend, parse_url(args.url, ctx.config.base_url)
     path = features_path(ref)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    used_before = ctx.ledger._read()
+    used_before = ctx.ledger.used
 
-    raw = be._ok(be._request("GET", path))
-    dump(args.out_dir / "ui_features.json", raw)
-
-    posted = False
     try:
+        reply = be._ok(be._request("GET", path.replace("/features", "/featurespecs")))
+        specs = reply.get("featureSpecs") if isinstance(reply, dict) else None
+        if specs is None:
+            keys = sorted(reply) if isinstance(reply, dict) else type(reply).__name__
+            raise SystemExit(f"capture: no 'featureSpecs' in the reply; top-level keys: {keys}")
+        kept = [s for s in specs if s.get("featureType") in WANTED]
+        seen = sorted({s.get("featureType") for s in specs if s.get("featureType")})
+        dump(args.out_dir / "feature_specs.json", {"kept": kept, "featureTypes_seen": seen})
+        missing = sorted(WANTED - {s["featureType"] for s in kept})
+        if len(WANTED) - len(missing) < 10:
+            print(f"WARNING: fewer than 10 wanted types found; missing: {missing}", file=sys.stderr)
+
+        dump(args.out_dir / "doc_features.json", be._ok(be._request("GET", path)))
+
         if not args.skip_probes:
-            features = raw.get("features") or []
-            probe = copy.deepcopy(find(features, "Round"))
-            body_id = find(features, "Body")["featureId"]
-            probe["name"] = "ProbeQS"
-            probe = strip_ids(probe)
-            query = {"btType": "BTMIndividualQuery-138", "queryString":
-                     f'query=qGeometry(qCreatedBy(makeId("{body_id}"), EntityType.EDGE), GeometryType.LINE);'}
-            replaced = False
-            for p in probe["parameters"]:
-                if p.get("parameterId") == "entities":
-                    p["queries"] = [query]
-                    replaced = True
-            if not replaced:
-                raise SystemExit("capture: the Round feature has no 'entities' parameter; nothing posted")
-            posted = True  # ProbeQS may exist from here on, even if the POST errors
-            write = be._ok(be._request("POST", path, body={
-                "feature": probe, "serializationVersion": SERIALIZATION_VERSION,
-                "sourceMicroversion": be.get_microversion(ref), "rejectMicroversionSkew": True}))
-            probes = {"querystring_write": write}
-            dump(args.out_dir / "probes.json", probes)
-
-            again = be._ok(be._request("GET", path))
-            back = dict(find(again.get("features") or [], "ProbeQS"))
-            back["state"] = (again.get("featureStates") or {}).get(back.get("featureId"))
-            probes["querystring_readback"] = back
-            dump(args.out_dir / "probes.json", probes)
-
+            probes = {}
             try:
                 probes["fs_eval"] = be._ok(be._request(
                     "POST", path.replace("/features", "/featurescript"),
@@ -98,9 +66,7 @@ def main() -> None:
                 probes["fs_eval"] = {"error": str(e)}
             dump(args.out_dir / "probes.json", probes)
     finally:
-        if posted:
-            print("Delete the ProbeQS feature in the Onshape UI.")
-        print(f"requests charged: {ctx.ledger._read() - used_before}", file=sys.stderr)
+        print(f"requests charged: {ctx.ledger.used - used_before}", file=sys.stderr)
 
 
 if __name__ == "__main__":
