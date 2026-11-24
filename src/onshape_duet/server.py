@@ -13,7 +13,8 @@ from .budget import Ledger
 from .cache import DocCache
 from .config import load_config
 from .docref import parse_url
-from .tools import Context, cad_read, cad_sketch, cad_status, cad_variable
+from .tools import (Context, cad_inspect, cad_read, cad_sketch, cad_specs, cad_status,
+                    cad_variable)
 
 DEFAULT_CONFIG = Path.home() / ".onshape-duet" / "config.toml"
 
@@ -69,6 +70,28 @@ def build_server(ctx: Context) -> MCPServer:
         except ValueError as e:
             return {"applied": False, "error": str(e)}
         return cad_variable(ctx, ref, name, expression, apply)
+
+    @mcp.tool(name="cad_specs")
+    def cad_specs_tool(url: str, feature_type: str | None = None) -> dict:
+        """List Onshape's native feature types, or with feature_type (e.g. "extrude")
+        that type's parameters (kind, units, options, defaults). Costs 1 request the
+        first time for a document, then 0. Never writes."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_specs(ctx, ref, feature_type)
+
+    @mcp.tool(name="cad_inspect")
+    def cad_inspect_tool(url: str, feature: str) -> dict:
+        """Show every parameter of one feature, by name or id (what cad_read omits).
+        Costs 0 requests after a cad_read of the document; geometry selections show
+        only a count, since they can be changed in Onshape only."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_inspect(ctx, ref, feature)
 
     return mcp
 

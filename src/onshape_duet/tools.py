@@ -8,6 +8,7 @@ before the write.
 from __future__ import annotations
 
 import os
+import difflib
 import functools
 import re
 import threading
@@ -21,6 +22,8 @@ from .budget import BudgetExceeded, Ledger
 from .cache import DocCache
 from .config import Config
 from .docref import DocRef
+from .generic.lookup import find_feature
+from .generic.render import render_feature, render_spec, render_spec_index
 from .generic.specs import FeatureSpec
 from .lint import Finding, lint_sketch
 from .model import Feature, FeatureList
@@ -43,10 +46,10 @@ class Context:
     config_path: Path | None = None
     # Why the next write needs a fresh cad_read (cleared by `read`).
     reread: dict[DocRef, str] = field(default_factory=dict)
-    # MCP runs sync tools in worker threads; one RLock serialises every tool body
-    # (last_read, DocCache and the ledger-delta request counts are shared state).
     # Native feature specs per document, fetched once (stored only on success).
     specs: dict[DocRef, list[FeatureSpec]] = field(default_factory=dict)
+    # MCP runs sync tools in worker threads; one RLock serialises every tool body
+    # (last_read, DocCache and the ledger-delta request counts are shared state).
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
 
     def read(self, ref: DocRef) -> FeatureList:
@@ -370,3 +373,40 @@ def cad_read(ctx: Context, ref: DocRef) -> str:
     if n == _UNAVAILABLE:
         return f"{body}\nrequests used: unavailable (ledger unreadable), budget left: unavailable"
     return f"{body}\nrequests used: {n}, budget left: {left}"
+
+
+@_locked
+def cad_specs(ctx: Context, ref: DocRef, feature_type: str | None = None) -> dict:
+    """Native feature types (index) or one type's parameters. 1 request the first
+    time per document, then 0. Never writes."""
+    start = _start(ctx)
+    try:
+        specs = ctx.feature_specs(ref)
+    except _FAILURES as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    if feature_type is None:
+        return _reply(ctx, start, False, specs=render_spec_index(specs))
+    hit = next((s for s in specs if s.type == feature_type), None)
+    if hit is None:
+        close = difflib.get_close_matches(str(feature_type), [s.type for s in specs], n=5, cutoff=0.4)
+        hint = (f"close native types: {', '.join(clean(c, 60) for c in close)}" if close
+                else "call cad_specs without feature_type for the list")
+        return _reply(ctx, start, False, error=(
+            f"no native feature type {clean(feature_type, 60)!r} (custom FeatureScript "
+            f"features have no spec here); {hint}"))
+    return _reply(ctx, start, False, specs=render_spec(hit))
+
+
+@_locked
+def cad_inspect(ctx: Context, ref: DocRef, feature: str) -> dict:
+    """Every parameter of one feature, by name or id. 0 requests after a cad_read;
+    specs label the parameters only if cad_specs already fetched them."""
+    start = _start(ctx)
+    try:
+        fl, _ = ctx.snapshot(ref)
+        f = find_feature(fl, feature)
+    except (StaleVersion, ValueError, *_FAILURES) as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    cached = ctx.specs.get(ref)
+    spec = next((s for s in cached or [] if s.type == f.type), None)
+    return _reply(ctx, start, False, feature=render_feature(f, spec))

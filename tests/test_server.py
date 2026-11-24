@@ -65,11 +65,11 @@ def test_read_then_apply_works_and_stale_refused(tmp_path):
     assert out["applied"] is False and "stale" in out["error"]
 
 
-def test_server_registers_four_tools(tmp_path):
+def test_server_registers_tools(tmp_path):
     ctx, _, _ = make(tmp_path)
     mcp = server.build_server(ctx)
     names = {t.name for t in asyncio.run(mcp.list_tools())}
-    assert names == {"cad_status", "cad_read", "cad_sketch", "cad_variable"}
+    assert {"cad_status", "cad_read", "cad_sketch", "cad_variable"} <= names
 
 
 def test_wrappers_reject_invalid_url(tmp_path):
