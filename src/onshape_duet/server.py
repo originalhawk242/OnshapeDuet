@@ -80,7 +80,7 @@ def build_server(ctx: Context) -> MCPServer:
         parameters take selector dicts in the same DSL as cad_find; raw geometry
         ids are refused. Prefer the typed tools (cad_extrude etc.) when one exists
         for the feature. Cost: dry run 0 requests (1 the first time the specs are
-        fetched), apply 2."""
+        fetched), apply 2 (+1 if specs are not cached)."""
         try:
             ref = parse_url(url, ctx.config.base_url)
         except ValueError as e:
@@ -96,7 +96,7 @@ def build_server(ctx: Context) -> MCPServer:
         parameters and sends everything else back exactly as read. Array
         parameters take a list (replaces all items; refused over human-picked
         geometry) or {"items": {"<index>": {...}}} to patch single items. Cost: 0
-        requests for a dry run after a read, 2 for apply. After updating a feature
+        requests for a dry run after a read, 2 for apply (+1 if specs are not cached). After updating a feature
         that is not the last one, re-read (cad_read) before the next write."""
         try:
             ref = parse_url(url, ctx.config.base_url)
@@ -118,8 +118,9 @@ def build_server(ctx: Context) -> MCPServer:
     @mcp.tool(name="cad_inspect")
     def cad_inspect_tool(url: str, feature: str) -> dict:
         """Show every parameter of one feature, by name or id (what cad_read omits).
-        Costs 0 requests after a cad_read of the document; geometry selections show
-        only a count, since they can be changed in Onshape only."""
+        Costs 0 requests after a cad_read of the document; selections made by query
+        string show as that text, and selections held as geometry ids show only a
+        count, since those can be changed in Onshape only."""
         try:
             ref = parse_url(url, ctx.config.base_url)
         except ValueError as e:

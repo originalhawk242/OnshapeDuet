@@ -51,7 +51,8 @@ def _quantity(spec: ParamSpec, value: object) -> dict:
         value = str(value)
     expr = _text(spec, value)
     if spec.units and _BARE_NUMBER.match(expr):
-        raise _bad(spec, f"{clean(expr)!r} needs a unit ({clean(spec.units)}), e.g. '{expr.strip()} mm'",
+        eg = "deg" if spec.quantity_type == "ANGLE" else "mm"
+        raise _bad(spec, f"{clean(expr)!r} needs a unit ({clean(spec.units)}), e.g. '{expr.strip()} {eg}'",
                    "MISSING_UNIT")
     return {"btType": "BTMParameterQuantity-147", "parameterId": spec.id, "expression": expr,
             "isInteger": spec.quantity_type == "INTEGER"}

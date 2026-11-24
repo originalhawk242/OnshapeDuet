@@ -193,3 +193,10 @@ def test_nested_array_patch_passes_current_through():
     r = build_param(outer, {"items": {"0": {"inner": {"items": {"0": {"entities": EDGE}}}}}}, FL, current=cur)
     q = r["items"][0]["parameters"][0]["items"][0]["parameters"][0]["queries"][0]
     assert "queryString" in q
+
+
+def test_missing_unit_example_follows_quantity_type():
+    with pytest.raises(ParamError, match="e.g. '30 deg'"):
+        build_param(ANGLE, "30", FL)
+    with pytest.raises(ParamError, match="e.g. '10 mm'"):
+        build_param(DEPTH, "10", FL)
