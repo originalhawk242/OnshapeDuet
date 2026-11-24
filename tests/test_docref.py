@@ -60,3 +60,34 @@ def test_configured_enterprise_host_is_accepted():
     assert parse_url(url, "https://acme.onshape.com") == DocRef(D, W, E)
     with pytest.raises(ValueError):
         parse_url(f"https://cad.onshape.com/documents/{D}/w/{W}/e/{E}", "https://acme.onshape.com")
+
+
+def test_explicit_port_matching_base_url_is_accepted():
+    base = "https://onshape.corp:8443"
+    assert parse_url(f"https://onshape.corp:8443/documents/{D}/w/{W}/e/{E}", base) == DocRef(D, W, E)
+    with pytest.raises(ValueError, match="port"):
+        parse_url(f"https://onshape.corp/documents/{D}/w/{W}/e/{E}", base)
+    with pytest.raises(ValueError, match="port"):
+        parse_url(f"https://onshape.corp:9443/documents/{D}/w/{W}/e/{E}", base)
+
+
+def test_default_port_443_may_be_written_explicitly():
+    assert parse_url(f"https://cad.onshape.com:443/documents/{D}/w/{W}/e/{E}") == DocRef(D, W, E)
+    with pytest.raises(ValueError):
+        parse_url(f"https://cad.onshape.com:444/documents/{D}/w/{W}/e/{E}")
+
+
+def test_http_url_gets_a_specific_message():
+    with pytest.raises(ValueError, match="only https URLs are supported"):
+        parse_url(f"http://cad.onshape.com/documents/{D}/w/{W}/e/{E}")
+
+
+@pytest.mark.parametrize("url", [
+    f"https://cad.onshape.com./documents/{D}/w/{W}/e/{E}",              # trailing dot
+    f"https://cad.onshape.com@evil.com/documents/{D}/w/{W}/e/{E}",
+    f"https://cad.onshape.com:443@evil.com/documents/{D}/w/{W}/e/{E}",
+    f"https://evilcad.onshape.com/documents/{D}/w/{W}/e/{E}",
+])
+def test_lookalikes_still_refused(url):
+    with pytest.raises(ValueError):
+        parse_url(url)
