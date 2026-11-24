@@ -31,6 +31,13 @@ MAX_COUNT = 10000
 _INT_RE = re.compile(r"^\s*\+?\d+\s*$")
 
 
+def _show(x) -> str:
+    """Render a caller value for a message; never stringify an oversized int."""
+    if isinstance(x, int) and not isinstance(x, bool) and abs(x) > 10**12:
+        return "a very large number"
+    return repr(clean(x))
+
+
 def _is_number(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
@@ -38,7 +45,7 @@ def _is_number(x) -> bool:
 def _var(x, arg: str, kind: str):
     m = _VAR_RE.match(x.strip())
     if not m:
-        raise FeatureSpecError(f"{clean(arg)}: invalid variable reference {clean(x)!r} (use #name, lowercase letters/digits/_)")
+        raise FeatureSpecError(f"{clean(arg)}: invalid variable reference {_show(x)} (use #name, lowercase letters/digits/_)")
     if kind != "length":
         raise FeatureSpecError(f"{clean(arg)}: variable references are not supported for {kind} arguments yet")
     return m.group(1)
@@ -60,11 +67,11 @@ def length(x, arg: str, *, positive: bool = True) -> Value:
         expr = f"{_num(float(m.group(1)))} {unit}"
     else:
         raise FeatureSpecError(
-            f"{clean(arg)}: expected a length like 10, '10 mm', '2 in' or '#var', got {clean(x)!r}")
+            f"{clean(arg)}: expected a length like 10, '10 mm', '2 in' or '#var', got {_show(x)}")
     if not math.isfinite(mm):
-        raise FeatureSpecError(f"{clean(arg)}: length must be finite, got {clean(x)!r}")
+        raise FeatureSpecError(f"{clean(arg)}: length must be finite, got {_show(x)}")
     if positive and (mm <= 0 or float(expr.split()[0]) == 0):
-        raise FeatureSpecError(f"{clean(arg)}: length must be > 0, got {clean(x)!r}")
+        raise FeatureSpecError(f"{clean(arg)}: length must be > 0, got {_show(x)}")
     return Value("length", expr, mm, None, arg)
 
 
@@ -79,11 +86,11 @@ def angle(x, arg: str) -> Value:
     elif isinstance(x, str) and (m := _ANGLE_RE.match(x)):
         deg = float(m.group(1))
     else:
-        raise FeatureSpecError(f"{clean(arg)}: expected an angle like 45 or '45 deg', got {clean(x)!r}")
+        raise FeatureSpecError(f"{clean(arg)}: expected an angle like 45 or '45 deg', got {_show(x)}")
     if not math.isfinite(deg) or not 0 < deg <= 360:
-        raise FeatureSpecError(f"{clean(arg)}: angle must satisfy 0 < deg <= 360, got {clean(x)!r}")
+        raise FeatureSpecError(f"{clean(arg)}: angle must satisfy 0 < deg <= 360, got {_show(x)}")
     if float(_num(deg)) == 0:
-        raise FeatureSpecError(f"{clean(arg)}: angle must satisfy 0 < deg <= 360, got {clean(x)!r}")
+        raise FeatureSpecError(f"{clean(arg)}: angle must satisfy 0 < deg <= 360, got {_show(x)}")
     return Value("angle", f"{_num(deg)} deg", deg, None, arg)
 
 
@@ -95,9 +102,9 @@ def count(x, arg: str, *, minimum: int = 2) -> Value:
     elif isinstance(x, str) and _INT_RE.match(x) and len(x.strip()) <= 12:
         n = int(x)
     else:
-        raise FeatureSpecError(f"{clean(arg)}: expected an integer count, got {clean(x)!r}")
+        raise FeatureSpecError(f"{clean(arg)}: expected an integer count, got {_show(x)}")
     if n < minimum or n > MAX_COUNT:
-        raise FeatureSpecError(f"{clean(arg)}: count must be between {minimum} and {MAX_COUNT}, got {clean(x)!r}")
+        raise FeatureSpecError(f"{clean(arg)}: count must be between {minimum} and {MAX_COUNT}, got {_show(x)}")
     return Value("count", str(n), float(n), None, arg)
 
 

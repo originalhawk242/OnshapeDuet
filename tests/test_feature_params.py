@@ -98,3 +98,10 @@ def test_messages_are_sanitised():
     with pytest.raises(FeatureSpecError) as e:
         length(bad, "a\nb" + "z" * 500)
     assert "\n" not in str(e.value) and len(str(e.value)) < 300
+
+
+@pytest.mark.parametrize("fn,arg", [(length, "depth"), (angle, "angle"), (count, "count")])
+@pytest.mark.parametrize("big", [10**5000, -(10**5000)], ids=["pos", "neg"])
+def test_oversized_int_raises_spec_error(fn, arg, big):
+    with pytest.raises(FeatureSpecError, match=arg):
+        fn(big, arg)
