@@ -23,7 +23,7 @@ from ..budget import BudgetExceeded, Ledger
 from ..config import Config
 from ..docref import DocRef, is_valid_id
 from ..model import Feature, FeatureList, Variable, WriteResult
-from ..variables import (VARIABLE_EXPR_PARAM, VARIABLE_FEATURE_TYPE, VARIABLE_NAME_PREFIX,
+from ..variables import (VARIABLE_EXPR_PARAM, VARIABLE_FEATURE_NAME, VARIABLE_FEATURE_TYPE, VARIABLE_NAME_PARAM,
                          variables_from_features)
 from .base import PostWriteError, StaleVersion
 
@@ -260,15 +260,22 @@ class OnshapeBackend:
 
     def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,
                      feature_id: str | None = None) -> WriteResult:
-        # TODO(Task 12): variable feature JSON and update endpoint are unverified.
+        # Feature shape verified live (read side); the create POST is verified by the live run.
         if feature_id is not None and not _FEATURE_ID.fullmatch(feature_id):
             raise RuntimeError("unexpected Onshape response: bad featureId on existing variable")
         feature = {
             "btType": "BTMFeature-134",
             "featureType": VARIABLE_FEATURE_TYPE,
-            "name": VARIABLE_NAME_PREFIX + name,
-            "parameters": [{"btType": "BTMParameterQuantity-147", "parameterId": VARIABLE_EXPR_PARAM,
-                            "expression": expression}],
+            "name": VARIABLE_FEATURE_NAME,
+            "parameters": [
+                {"btType": "BTMParameterEnum-145", "parameterId": "mode",
+                 "value": "ASSIGNED", "enumName": "VariableMode"},
+                {"btType": "BTMParameterEnum-145", "parameterId": "variableType",
+                 "value": "LENGTH", "enumName": "VariableType"},
+                {"btType": "BTMParameterString-149", "parameterId": VARIABLE_NAME_PARAM, "value": name},
+                {"btType": "BTMParameterQuantity-147", "parameterId": VARIABLE_EXPR_PARAM,
+                 "expression": expression},
+            ],
         }
         body = {"feature": feature, "serializationVersion": SERIALIZATION_VERSION}
         path = features_path(ref) if feature_id is None else feature_update_path(ref, feature_id)
@@ -292,5 +299,5 @@ class OnshapeBackend:
                 return Feature(parsed.id, parsed.type, parsed.name, "", parsed.params)
             except RuntimeError:
                 pass
-        return Feature(feature_id or "", VARIABLE_FEATURE_TYPE, VARIABLE_NAME_PREFIX + name, "",
-                       {VARIABLE_EXPR_PARAM: expression})
+        return Feature(feature_id or "", VARIABLE_FEATURE_TYPE, VARIABLE_FEATURE_NAME, "",
+                       {VARIABLE_NAME_PARAM: name, VARIABLE_EXPR_PARAM: expression})

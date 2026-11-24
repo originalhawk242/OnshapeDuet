@@ -118,8 +118,9 @@ def test_add_feature_posts_and_returns_result(tmp_path):
 
 def test_get_variables_from_assign_features(tmp_path):
     body = {"sourceMicroversion": "mv1", "featureStates": {}, "features": [
-        {"featureId": "A", "featureType": "assign", "name": "#w", "parameters": [
-            {"parameterId": "value", "expression": "10 mm"}]},
+        {"featureId": "A", "featureType": "assignVariable", "name": "#name = #value", "parameters": [
+            {"parameterId": "name", "value": "w"},
+            {"parameterId": "lengthValue", "expression": "10 mm"}]},
         {"featureId": "B", "featureType": "extrude", "name": "E", "parameters": []},
     ]}
     b, _ = make(tmp_path, lambda r: httpx.Response(200, json=body))
@@ -415,8 +416,11 @@ def test_real_param_shapes_are_flattened_and_printed(tmp_path):
 
 def test_variables_from_real_shaped_assign_feature(tmp_path):
     body = {"sourceMicroversion": "mv1", "features": [
-        {"featureId": "A", "featureType": "assign", "name": "#w", "parameters": [
-            {"btType": "BTMParameterQuantity-147", "parameterId": "value", "expression": "10 mm"}]}]}
+        {"featureId": "A", "featureType": "assignVariable", "name": "###name = #value", "parameters": [
+            {"btType": "BTMParameterEnum-145", "parameterId": "variableType", "value": "LENGTH"},
+            {"btType": "BTMParameterString-149", "parameterId": "name", "value": "w"},
+            {"btType": "BTMParameterQuantity-147", "parameterId": "lengthValue", "value": 0.0,
+             "expression": "10 mm"}]}]}
     b, _ = make(tmp_path, lambda r: httpx.Response(200, json=body))
     assert [(v.name, v.expression) for v in b.get_variables(REF)] == [("w", "10 mm")]
 
@@ -474,3 +478,23 @@ def test_currentmicroversion_real_live_shape(tmp_path):
     # Real response observed live (id replaced): {"microversion": "<24 hex>"}
     b, _ = make(tmp_path, lambda r: httpx.Response(200, text='{\n  "microversion" : "e60aef496d4a32279c30e372"\n}'))
     assert b.get_microversion(REF) == "e60aef496d4a32279c30e372"
+
+
+def test_set_variable_posts_real_assignvariable_shape(tmp_path):
+    sent = []
+
+    def handler(req):
+        if req.method == "POST":
+            sent.append(json.loads(req.content))
+            return httpx.Response(200, json={"feature": {"featureId": "F2moZquD5ojPGrs_0"},
+                                             "featureState": {"featureStatus": "OK"},
+                                             "sourceMicroversion": "mv2"})
+        return httpx.Response(200, json={"microversion": "mv1"})
+
+    b, _ = make(tmp_path, handler)
+    b.set_variable(REF, "plate_w", "40 mm", "mv1")
+    f = sent[0]["feature"]
+    assert f["featureType"] == "assignVariable" and f["name"] == "#name = #value"
+    ps = {p["parameterId"]: p for p in f["parameters"]}
+    assert ps["name"]["value"] == "plate_w" and ps["lengthValue"]["expression"] == "40 mm"
+    assert ps["variableType"]["value"] == "LENGTH" and ps["mode"]["value"] == "ASSIGNED"

@@ -1,21 +1,24 @@
 """The ONE place that maps Onshape variable ("assign") features to Variables.
 
-UNVERIFIED against live Onshape until Task 12 (see docs/live-checklist.md): the
-variable name is assumed to be the feature name "#<name>" and the expression the
-flattened `value` parameter. If the real model differs, change only this module
-(and the matching write body in backends/onshape.py).
+VERIFIED live: a Part Studio variable is an `assignVariable` feature whose feature
+name is the default template "#name = #value"; the variable name is the string
+parameter `name` and the expression is the quantity parameter `lengthValue`.
+Only length variables are supported. The matching write body is in
+backends/onshape.py.
 """
 from __future__ import annotations
 
 from .model import Feature, FeatureList, Variable
 
-VARIABLE_FEATURE_TYPE = "assign"
-VARIABLE_NAME_PREFIX = "#"  # assign features are named "#<var>"
-VARIABLE_EXPR_PARAM = "value"
+VARIABLE_FEATURE_TYPE = "assignVariable"
+VARIABLE_FEATURE_NAME = "#name = #value"  # Onshape's default feature name template
+VARIABLE_NAME_PARAM = "name"
+VARIABLE_EXPR_PARAM = "lengthValue"
 
 
 def variable_name(feature: Feature) -> str:
-    return feature.name.removeprefix(VARIABLE_NAME_PREFIX)
+    val = feature.params.get(VARIABLE_NAME_PARAM, "")
+    return val if isinstance(val, str) else ""
 
 
 def _expression(feature: Feature) -> str:
@@ -38,5 +41,5 @@ def find_variable(fl: FeatureList, name: str) -> Feature | None:
 
 def make_variable_feature(feature_id: str, name: str, expression: str) -> Feature:
     """A variable feature as `variables_from_features` expects it (used by the fake backend)."""
-    return Feature(feature_id, VARIABLE_FEATURE_TYPE, VARIABLE_NAME_PREFIX + name, "OK",
-                   {VARIABLE_EXPR_PARAM: expression})
+    return Feature(feature_id, VARIABLE_FEATURE_TYPE, VARIABLE_FEATURE_NAME, "OK",
+                   {VARIABLE_NAME_PARAM: name, VARIABLE_EXPR_PARAM: expression})

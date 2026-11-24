@@ -21,7 +21,7 @@ def test_write_bumps_microversion():
     assert b.get_microversion(REF) == res.microversion
     new = b.set_variable(REF, "w", "10 mm", res.microversion)
     assert new.microversion != res.microversion and b.get_microversion(REF) == new.microversion
-    assert new.feature.name == "#w"
+    assert new.feature.name == "#name = #value" and new.feature.params["name"] == "w"
 
 
 def test_stale_write_raises():
