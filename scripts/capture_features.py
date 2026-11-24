@@ -60,35 +60,47 @@ def main() -> None:
     raw = be._ok(be._request("GET", path))
     dump(args.out_dir / "ui_features.json", raw)
 
-    if not args.skip_probes:
-        features = raw.get("features") or []
-        probe = copy.deepcopy(find(features, "Round"))
-        body_id = find(features, "Body")["featureId"]
-        probe["name"] = "ProbeQS"
-        probe = strip_ids(probe)
-        query = {"btType": "BTMIndividualQuery-138", "queryString":
-                 f'query=qGeometry(qCreatedBy(makeId("{body_id}"), EntityType.EDGE), GeometryType.LINE);'}
-        for p in probe["parameters"]:
-            if p.get("parameterId") == "entities":
-                p["queries"] = [query]
-        write = be._ok(be._request("POST", path, body={
-            "feature": probe, "serializationVersion": SERIALIZATION_VERSION,
-            "sourceMicroversion": be.get_microversion(ref), "rejectMicroversionSkew": True}))
-        probes = {"querystring_write": write}
-        dump(args.out_dir / "probes.json", probes)
+    posted = False
+    try:
+        if not args.skip_probes:
+            features = raw.get("features") or []
+            probe = copy.deepcopy(find(features, "Round"))
+            body_id = find(features, "Body")["featureId"]
+            probe["name"] = "ProbeQS"
+            probe = strip_ids(probe)
+            query = {"btType": "BTMIndividualQuery-138", "queryString":
+                     f'query=qGeometry(qCreatedBy(makeId("{body_id}"), EntityType.EDGE), GeometryType.LINE);'}
+            replaced = False
+            for p in probe["parameters"]:
+                if p.get("parameterId") == "entities":
+                    p["queries"] = [query]
+                    replaced = True
+            if not replaced:
+                raise SystemExit("capture: the Round feature has no 'entities' parameter; nothing posted")
+            posted = True  # ProbeQS may exist from here on, even if the POST errors
+            write = be._ok(be._request("POST", path, body={
+                "feature": probe, "serializationVersion": SERIALIZATION_VERSION,
+                "sourceMicroversion": be.get_microversion(ref), "rejectMicroversionSkew": True}))
+            probes = {"querystring_write": write}
+            dump(args.out_dir / "probes.json", probes)
 
-        again = be._ok(be._request("GET", path))
-        back = dict(find(again.get("features") or [], "ProbeQS"))
-        back["state"] = (again.get("featureStates") or {}).get(back.get("featureId"))
-        probes["querystring_readback"] = back
-        dump(args.out_dir / "probes.json", probes)
+            again = be._ok(be._request("GET", path))
+            back = dict(find(again.get("features") or [], "ProbeQS"))
+            back["state"] = (again.get("featureStates") or {}).get(back.get("featureId"))
+            probes["querystring_readback"] = back
+            dump(args.out_dir / "probes.json", probes)
 
-        probes["fs_eval"] = be._ok(be._request(
-            "POST", path.replace("/features", "/featurescript"), body={"script": SCRIPT, "queries": []}))
-        dump(args.out_dir / "probes.json", probes)
-        print("Delete the ProbeQS feature in the Onshape UI.")
-
-    print(f"requests charged: {ctx.ledger._read() - used_before}", file=sys.stderr)
+            try:
+                probes["fs_eval"] = be._ok(be._request(
+                    "POST", path.replace("/features", "/featurescript"),
+                    body={"script": SCRIPT, "queries": []}))
+            except RuntimeError as e:
+                probes["fs_eval"] = {"error": str(e)}
+            dump(args.out_dir / "probes.json", probes)
+    finally:
+        if posted:
+            print("Delete the ProbeQS feature in the Onshape UI.")
+        print(f"requests charged: {ctx.ledger._read() - used_before}", file=sys.stderr)
 
 
 if __name__ == "__main__":
