@@ -207,3 +207,63 @@ def test_magic_number_groups_by_absolute_value():
                            {"type": "distance_h", "refs": ["p", "q"], "value": 20}]}
     found = [f for f in lint(spec) if f.code == "MAGIC_NUMBER"]
     assert len(found) == 1 and "3 dimensions" in found[0].message
+
+
+# ---- lint_feature ----
+from onshape_duet.features.params import Value
+from onshape_duet.lint import lint_feature
+from onshape_duet.model import Feature, FeatureList
+from onshape_duet.variables import make_variable_feature
+
+
+def _fl(*features):
+    return FeatureList("m", list(features))
+
+
+def _len(arg, lit=None, var=None):
+    return Value("length", f"#{var}" if var else f"{lit:g} mm", lit, var, arg)
+
+
+def _codes(fs):
+    return {(f.level, f.code) for f in fs}
+
+
+def test_lint_feature_default_name_warns():
+    assert ("warn", "DEFAULT_NAME") in _codes(lint_feature("Extrude 3", [], _fl()))
+
+
+def test_lint_feature_duplicate_name_refused():
+    fl = _fl(Feature("F1", "extrude", "Base", "OK", {}))
+    assert ("refuse", "DUPLICATE_NAME") in _codes(lint_feature("Base", [], fl))
+
+
+def test_lint_unknown_variable_refused():
+    fs = lint_feature("Rib", [_len("depth", var="nope")], _fl())
+    assert ("refuse", "UNKNOWN_VARIABLE") in _codes(fs)
+
+
+def test_lint_non_length_variable_refused():
+    v = make_variable_feature("V1", "tilt", "45 deg")
+    v.params["variableType"] = "ANGLE"
+    fs = lint_feature("Rib", [_len("depth", var="tilt")], _fl(v))
+    assert ("refuse", "NON_LENGTH_VARIABLE") in _codes(fs)
+
+
+def test_lint_magic_number_across_features():
+    fl = _fl(Feature("F1", "extrude", "Base\nplate", "OK", {"depth": "10 mm"}))
+    fs = lint_feature("Round", [_len("radius", 10)], fl)
+    m = [f for f in fs if f.code == "MAGIC_NUMBER"]
+    assert len(m) == 1 and m[0].level == "warn"
+    assert "Base plate" in m[0].message and "cad_variable" in m[0].message
+
+
+def test_lint_magic_number_within_call():
+    fs = lint_feature("Rib", [_len("a", 5), _len("b", 5)], _fl())
+    m = [f for f in fs if f.code == "MAGIC_NUMBER"]
+    assert len(m) == 1 and "a" in m[0].message and "b" in m[0].message
+
+
+def test_lint_clean_feature_has_no_findings():
+    v = make_variable_feature("V1", "w", "10 mm")
+    fl = _fl(v, Feature("F1", "extrude", "Base", "OK", {"depth": "7 mm"}))
+    assert lint_feature("Rib", [_len("depth", var="w"), _len("r", 3)], fl) == []
