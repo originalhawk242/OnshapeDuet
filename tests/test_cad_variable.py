@@ -283,3 +283,14 @@ def test_successful_write_clears_the_hint(env):
     ctx.read(REF)
     assert cad_variable(ctx, REF, "w", "9 mm", apply=True)["applied"] is True  # update
     assert REF not in ctx.reread
+
+
+def test_refuses_to_convert_a_non_length_variable(env):
+    ctx, backend, _ = env
+    backend._doc(REF).variables["count"] = "5"
+    # make the existing feature an ANGLE variable, as Onshape would report it
+    feat = next(f for f in backend._doc(REF).features if f.params.get("name") == "count")
+    feat.params["variableType"] = "ANGLE"
+    ctx.read(REF)
+    out = cad_variable(ctx, REF, "count", "5 mm", apply=True)
+    assert out["applied"] is False and "ANGLE" in out["error"] and "nothing was written" in out["error"]

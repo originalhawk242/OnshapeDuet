@@ -22,7 +22,7 @@ from .cache import DocCache
 from .config import Config
 from .docref import DocRef
 from .lint import Finding, lint_sketch
-from .model import FeatureList
+from .model import Feature, FeatureList
 from .outline import render_outline
 from .sketch.serialize import to_feature_json
 from .sketch.solver import analyze
@@ -262,6 +262,11 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     current = {v.name: v.expression for v in variables_from_features(fl)}
     old = current.get(name)
     existing = find_variable(fl, name)
+    vtype = existing.params.get("variableType") if existing else None
+    if vtype not in (None, "LENGTH"):  # only length variables are written; never convert one
+        return _reply(ctx, start, False, error=(
+            f"variable {clean(name, 40)} is a {clean(str(vtype), 20)} variable; cad_variable only "
+            "writes LENGTH variables, so nothing was written. Edit it in Onshape."))
     unknown = sorted({m for m in _HASH_REF.findall(expression) if m not in current})
     findings = [Finding("warn", "UNKNOWN_VARIABLE",
                         f"the expression references #{clean(m, 40)}, which is not a variable "
@@ -304,9 +309,12 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     ctx.last_read[ref] = new_mv
     # An updated variable keeps its feature id, so the cache can be spliced; a new
     # one has an unknown id, so the entry is dropped (the next write needs cad_read).
-    ctx.cache.note_write(ref, new_mv,
-                         make_variable_feature(existing.id, name, expression) if existing else None,
-                         expected_microversion=expected)
+    spliced = None
+    if existing:
+        spliced = make_variable_feature(existing.id, name, expression)
+        if status:  # keep the regeneration status the write reply reported
+            spliced = Feature(spliced.id, spliced.type, spliced.name, status, spliced.params)
+    ctx.cache.note_write(ref, new_mv, spliced, expected_microversion=expected)
     if existing is None:
         ctx.reread[ref] = _NEW_VARIABLE
         extra["note"] = _NEW_VARIABLE
