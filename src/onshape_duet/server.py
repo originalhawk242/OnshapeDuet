@@ -13,7 +13,7 @@ from .budget import Ledger
 from .cache import DocCache
 from .config import load_config
 from .docref import parse_url
-from .feature_tools import cad_extrude, cad_find, cad_plane
+from .feature_tools import cad_extrude, cad_find, cad_plane, cad_revolve
 from .tools import Context, cad_read, cad_sketch, cad_status, cad_variable
 
 DEFAULT_CONFIG = Path.home() / ".onshape-duet" / "config.toml"
@@ -124,6 +124,28 @@ def build_server(ctx: Context) -> MCPServer:
         except ValueError as e:
             return {"applied": False, "error": str(e)}
         return cad_plane(ctx, ref, name, base, offset, flip, apply)
+
+    @mcp.tool(name="cad_revolve")
+    def cad_revolve_tool(url: str, name: str, sketch: str, axis: str,
+                         angle: StrictFloat | StrictInt | StrictStr = 360,
+                         operation: str = "new", symmetric: StrictBool = False,
+                         flip: StrictBool = False, apply: StrictBool = False) -> dict:
+        """Revolve the profile of an existing sketch (referenced by feature name) about a
+        line in that sketch. axis: the sketch line's entity id, e.g. "box.left" (letters,
+        digits, underscore, dots only). angle: degrees number or '90 deg' (0 < angle <= 360;
+        360 is a full revolve; '#variable' is not supported). symmetric spreads a partial
+        angle across both sides of the sketch plane (not allowed with 360). operation:
+        new|add|remove|intersect (add, remove and intersect merge with all bodies). flip
+        reverses the direction. DRY RUN IS THE DEFAULT: nothing is written unless
+        apply=True. Show the dry-run result (summary, findings) to the owner, then apply,
+        and read afterwards. Read the document (cad_read) before apply; a stale write is
+        refused. Costs: a dry run is free once the document was read; apply costs 2
+        requests (version check + write), or 3 when the write reply names no new version."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_revolve(ctx, ref, name, sketch, axis, angle, operation, symmetric, flip, apply)
 
     return mcp
 

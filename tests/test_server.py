@@ -340,3 +340,18 @@ def test_plane_offset_rejects_bool_at_mcp_layer(tmp_path, offset):
         res = e
     assert "applied" not in repr(res) or "error" in repr(res)
     assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("angle", [True, False])
+def test_revolve_angle_rejects_bool_at_mcp_layer(tmp_path, angle):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    assert "cad_revolve" in {t.name for t in asyncio.run(mcp.list_tools())}
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool("cad_revolve", {"url": url, "name": "R", "sketch": "S",
+                                                        "axis": "a", "angle": angle}))
+    except Exception as e:
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0

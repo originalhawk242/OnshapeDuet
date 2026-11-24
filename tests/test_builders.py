@@ -99,3 +99,69 @@ def test_build_plane_summary_cleans_strings():
     fl = FeatureList("v1", [Feature("Fp", "cPlane", "Mid\x1b[31m", "OK")])
     b = build_plane(fl, base={"plane": "Mid\x1b[31m"}, offset=1)
     assert "\x1b" not in str(b.summary)
+
+
+from onshape_duet.features.builders import build_revolve  # noqa: E402
+
+
+def test_build_revolve_matches_spec():
+    b = build_revolve(FL, sketch="Base", axis="box.left")
+    assert_matches_spec(b.feature_json, "revolve")
+    p = _by_id(b)
+    assert b.feature_json["featureType"] == "revolve"
+    assert p["fullRevolve"]["value"] is True
+    assert not {"angle", "endBound", "symmetric"} & set(p)
+    assert p["bodyType"]["value"] == "SOLID" and p["operationType"]["value"] == "NEW"
+    assert 'qSketchRegion(makeId("Fabc"), true)' in p["entities"]["queries"][0]["queryString"]
+    assert 'sketchEntityQuery(makeId("Fabc"), EntityType.EDGE, "box.left")' in \
+        p["axis"]["queries"][0]["queryString"]
+    assert p["oppositeDirection"]["value"] is False
+    assert "defaultScope" not in p
+
+
+def test_revolve_partial_angle_sets_type_and_angle():
+    b = build_revolve(FL, sketch="Base", axis="ax", angle=90, operation="add",
+                      symmetric=True, flip=True)
+    assert_matches_spec(b.feature_json, "revolve")
+    p = _by_id(b)
+    assert p["fullRevolve"]["value"] is False
+    assert p["endBound"]["value"] == "BLIND"
+    assert p["angle"]["expression"] == "90 deg"
+    assert p["symmetric"]["value"] is True and p["oppositeDirection"]["value"] is True
+    assert p["defaultScope"]["value"] is True
+    assert b.values[0].literal == 90
+
+
+def test_revolve_partial_angle_not_symmetric_emits_false():
+    p = _by_id(build_revolve(FL, sketch="Base", axis="ax", angle="45 deg"))
+    assert p["symmetric"]["value"] is False and p["angle"]["expression"] == "45 deg"
+
+
+def test_revolve_symmetric_full_refused():
+    with pytest.raises(FeatureSpecError, match="symmetric"):
+        build_revolve(FL, sketch="Base", axis="ax", symmetric=True)
+
+
+@pytest.mark.parametrize("axis", ['a"); x(', "a b", "", None, 5, ["a"], "a.", ".a", "a..b",
+                                  "a\n", "é", 'a"'])
+def test_revolve_axis_id_rejects_hostile(axis):
+    with pytest.raises(FeatureSpecError, match="axis"):
+        build_revolve(FL, sketch="Base", axis=axis)
+
+
+@pytest.mark.parametrize("kw", [{"angle": True}, {"angle": "#v"}, {"angle": 0}, {"angle": 400},
+                                {"operation": "zap"}, {"flip": "yes"}, {"symmetric": 1}])
+def test_revolve_bad_args_refused(kw):
+    with pytest.raises(FeatureSpecError):
+        build_revolve(FL, sketch="Base", axis="ax", **kw)
+
+
+def test_revolve_unknown_sketch():
+    with pytest.raises(Exception, match="Nope"):
+        build_revolve(FL, sketch="Nope", axis="ax")
+
+
+def test_revolve_summary():
+    b = build_revolve(FL, sketch="Base", axis="ax", angle=90)
+    assert b.summary == {"sketch": "Base", "axis": "ax", "angle": "90 deg",
+                         "operation": "new", "symmetric": False}

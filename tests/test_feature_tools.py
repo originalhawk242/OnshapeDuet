@@ -147,3 +147,16 @@ def test_extrude_apply_with_lost_cache_is_refused(with_sketch):
     out = cad_extrude(ctx, REF, "Body", "Base", 7, apply=True)
     assert out["applied"] is False and "error" in out
     assert backend.calls["add_feature"] == 1
+
+
+def test_revolve_dry_run_summary(with_sketch):
+    from onshape_duet.feature_tools import cad_revolve
+    ctx, backend, _ = with_sketch
+    out = cad_revolve(ctx, REF, "Spin", "Base", "c", angle=90)
+    assert out["applied"] is False and out["feature_type"] == "revolve"
+    assert out["summary"] == {"sketch": "Base", "axis": "c", "angle": "90 deg",
+                              "operation": "new", "symmetric": False}
+    out = cad_revolve(ctx, REF, "Spin", "Base", "c", apply=True)
+    assert out["applied"] is True
+    assert "Spin [revolve] OK" in cad_read(ctx, REF)
+    assert "axis" in cad_revolve(ctx, REF, "Spin2", "Base", 'a"); x(')["error"]

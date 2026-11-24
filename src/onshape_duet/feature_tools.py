@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from .backends.base import PostWriteError, StaleVersion
 from .docref import DocRef
-from .features.builders import Built, build_extrude, build_plane
+from .features.builders import Built, build_extrude, build_plane, build_revolve
 from .features.find import find_script, parse_find_result
 from .features.params import FeatureSpecError
 from .features.refs import compile_selector, selector_entity
@@ -100,3 +100,13 @@ def cad_plane(ctx: Context, ref: DocRef, name: str, base, offset, flip: bool = F
         ctx, ref, name,
         lambda fl: build_plane(fl, base=base, offset=offset, flip=flip),
         apply, "the plane")
+
+
+def cad_revolve(ctx: Context, ref: DocRef, name: str, sketch: str, axis: str, angle=360,
+                operation: str = "new", symmetric: bool = False, flip: bool = False,
+                apply: bool = False) -> dict:
+    return run_feature(
+        ctx, ref, name,
+        lambda fl: build_revolve(fl, sketch=sketch, axis=axis, angle=angle, operation=operation,
+                                 symmetric=symmetric, flip=flip),
+        apply, "the revolve")
