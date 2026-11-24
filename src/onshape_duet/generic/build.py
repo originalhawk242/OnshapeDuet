@@ -91,7 +91,8 @@ def _feature_list(spec: ParamSpec, value: object, fl: FeatureList) -> dict:
     return {"btType": "BTMParameterFeatureList-1749", "parameterId": spec.id, "featureIds": ids}
 
 
-def _item_params(spec: ParamSpec, item: object, fl: FeatureList) -> list[dict]:
+def _item_params(spec: ParamSpec, item: object, fl: FeatureList,
+                 existing: list | None = None) -> list[dict]:
     if not isinstance(item, dict):
         raise _bad(spec, "each item must be a mapping of parameter id to value")
     subs = {s.id: s for s in spec.items}
@@ -100,7 +101,8 @@ def _item_params(spec: ParamSpec, item: object, fl: FeatureList) -> list[dict]:
         if k not in subs:
             raise _bad(spec, f"unknown item key {clean(k)!r}; allowed: "
                        f"{', '.join(clean(s) for s in subs) or '(none)'}")
-        out.append(build_param(subs[k], v, fl))
+        cur = next((p for p in existing or [] if isinstance(p, dict) and p.get("parameterId") == k), None)
+        out.append(build_param(subs[k], v, fl, current=cur))
     return out
 
 
@@ -127,7 +129,7 @@ def _array(spec: ParamSpec, value: object, fl: FeatureList, current: dict | None
         if not 0 <= idx < len(cur_items):
             raise _bad(spec, f"item index {idx} out of range (0..{len(cur_items) - 1})")
         params = out["items"][idx].setdefault("parameters", [])
-        for new in _item_params(spec, patch, fl):
+        for new in _item_params(spec, patch, fl, params):
             for i, old in enumerate(params):
                 if isinstance(old, dict) and old.get("parameterId") == new["parameterId"]:
                     params[i] = new

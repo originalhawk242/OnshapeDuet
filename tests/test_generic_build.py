@@ -176,3 +176,20 @@ def test_unsupported_kind_refused():
     with pytest.raises(ParamError) as e:
         build_param(WEIRD, 1, FL)
     assert e.value.code == "UNSUPPORTED_PARAM_KIND" and e.value.param == "w"
+
+
+def test_nested_array_patch_passes_current_through():
+    inner = ParamSpec("inner", "Inner", "array", items=(ENTITIES,))
+    outer = ParamSpec("outer", "Outer", "array", items=(inner,))
+    cur = {"btType": "BTMParameterArray-2025", "parameterId": "outer", "items": [
+        {"btType": "BTMArrayParameterItem-1843", "parameters": [
+            {"btType": "BTMParameterArray-2025", "parameterId": "inner", "items": [
+                {"btType": "BTMArrayParameterItem-1843", "parameters": [
+                    {"btType": "BTMParameterQueryList-148", "parameterId": "entities",
+                     "queries": [{"btType": "BTMIndividualQuery-138", "deterministicIds": ["JHD"]}]}]}]}]}]}
+    with pytest.raises(ParamError) as e:
+        build_param(outer, {"items": {"0": {"inner": [{"entities": EDGE}]}}}, FL, current=cur)
+    assert e.value.code == "RAW_GEOMETRY_ID"
+    r = build_param(outer, {"items": {"0": {"inner": {"items": {"0": {"entities": EDGE}}}}}}, FL, current=cur)
+    q = r["items"][0]["parameters"][0]["items"][0]["parameters"][0]["queries"][0]
+    assert "queryString" in q
