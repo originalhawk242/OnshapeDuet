@@ -6,11 +6,11 @@ import json
 import httpx
 import pytest
 
-from onshape_cad_mcp.backends.base import StaleVersion
-from onshape_cad_mcp.backends.onshape import OnshapeBackend, sign
-from onshape_cad_mcp.budget import BudgetExceeded, Ledger
-from onshape_cad_mcp.config import Config
-from onshape_cad_mcp.docref import DocRef
+from onshape_duet.backends.base import StaleVersion
+from onshape_duet.backends.onshape import OnshapeBackend, sign
+from onshape_duet.budget import BudgetExceeded, Ledger
+from onshape_duet.config import Config
+from onshape_duet.docref import DocRef
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 
@@ -174,7 +174,7 @@ def test_redirect_without_location_raises(tmp_path):
 
 def test_redirect_on_write_raises(tmp_path):
     b, ledger = make(tmp_path, lambda r: httpx.Response(307, headers={"Location": "/api/x"}))
-    from onshape_cad_mcp.backends.base import PostWriteError
+    from onshape_duet.backends.base import PostWriteError
     with pytest.raises(PostWriteError, match="POST"):
         b.add_feature(REF, {"type": "x"}, "mv1")
     assert ledger.used == 1
@@ -194,7 +194,7 @@ def test_bad_microversion_body_is_clear_error(tmp_path, resp):
 
 @pytest.mark.parametrize("body", [{}, {"feature": {}}, {"feature": {"name": "x"}}])
 def test_add_feature_missing_feature_id(tmp_path, body):
-    from onshape_cad_mcp.backends.base import PostWriteError
+    from onshape_duet.backends.base import PostWriteError
     b, _ = make(tmp_path, lambda r: httpx.Response(200, json=body))
     with pytest.raises(PostWriteError, match="unexpected Onshape response"):
         b.add_feature(REF, {"type": "x"}, "mv1")
@@ -207,7 +207,7 @@ def test_ref_with_bad_component_cannot_be_built():
 
 
 def test_path_builders_reject_forged_ref():
-    from onshape_cad_mcp.backends.onshape import features_path, feature_update_path
+    from onshape_duet.backends.onshape import features_path, feature_update_path
     forged = object.__new__(DocRef)
     object.__setattr__(forged, "document", "../..")
     object.__setattr__(forged, "workspace", "b" * 24)
@@ -320,7 +320,7 @@ def test_plain_409_is_stale_but_not_landed(tmp_path):
 
 
 def test_post_transport_error_is_post_write_error(tmp_path):
-    from onshape_cad_mcp.backends.base import PostWriteError
+    from onshape_duet.backends.base import PostWriteError
 
     def handler(req):
         raise httpx.ReadTimeout("slow")
@@ -330,7 +330,7 @@ def test_post_transport_error_is_post_write_error(tmp_path):
 
 
 def test_post_5xx_is_post_write_error_but_4xx_is_plain(tmp_path):
-    from onshape_cad_mcp.backends.base import PostWriteError
+    from onshape_duet.backends.base import PostWriteError
     b, _ = make(tmp_path, lambda r: httpx.Response(502, text="bad gateway"))
     with pytest.raises(PostWriteError):
         b.add_feature(REF, {"type": "x"}, "mv1")
@@ -341,7 +341,7 @@ def test_post_5xx_is_post_write_error_but_4xx_is_plain(tmp_path):
 
 
 def test_add_feature_followup_microversion_failure_is_post_write_error(tmp_path):
-    from onshape_cad_mcp.backends.base import PostWriteError
+    from onshape_duet.backends.base import PostWriteError
     reply = {k: v for k, v in ADD_REPLY.items() if k != "sourceMicroversion"}
 
     def handler(req):
@@ -354,7 +354,7 @@ def test_add_feature_followup_microversion_failure_is_post_write_error(tmp_path)
 
 
 def test_add_feature_followup_budget_failure_is_post_write_error(tmp_path):
-    from onshape_cad_mcp.backends.base import PostWriteError
+    from onshape_duet.backends.base import PostWriteError
     reply = {k: v for k, v in ADD_REPLY.items() if k != "sourceMicroversion"}
     b, _ = make(tmp_path, lambda r: httpx.Response(200, json=reply), budget=1)
     with pytest.raises(PostWriteError, match="reading the new version failed"):
@@ -362,7 +362,7 @@ def test_add_feature_followup_budget_failure_is_post_write_error(tmp_path):
 
 
 def test_set_variable_followup_failure_is_post_write_error(tmp_path):
-    from onshape_cad_mcp.backends.base import PostWriteError
+    from onshape_duet.backends.base import PostWriteError
 
     def handler(req):
         if req.method == "GET" and req.url.path.endswith("/features"):
@@ -404,7 +404,7 @@ REAL_FEATURES = {"sourceMicroversion": "mv5", "featureStates": {"E1": {"featureS
 
 
 def test_real_param_shapes_are_flattened_and_printed(tmp_path):
-    from onshape_cad_mcp.outline import render_outline
+    from onshape_duet.outline import render_outline
     b, _ = make(tmp_path, lambda r: httpx.Response(200, json=REAL_FEATURES))
     fl = b.list_features(REF)
     p = fl.features[0].params

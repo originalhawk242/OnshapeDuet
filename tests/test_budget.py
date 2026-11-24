@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from onshape_cad_mcp.budget import BudgetExceeded, Ledger
+from onshape_duet.budget import BudgetExceeded, Ledger
 
 
 def test_charge_counts(tmp_path):
@@ -160,7 +160,7 @@ def test_successful_write_fsyncs_the_directory(tmp_path, monkeypatch):
 
 
 def test_missing_fcntl_fails_closed_at_use_not_at_import(tmp_path, monkeypatch):
-    import onshape_cad_mcp.budget as budget
+    import onshape_duet.budget as budget
     monkeypatch.setattr(budget, "fcntl", None)
     led = Ledger(tmp_path / "l.json", limit=3)
     with pytest.raises(BudgetExceeded, match="POSIX"):

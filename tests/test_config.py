@@ -1,6 +1,6 @@
 import pytest
 
-from onshape_cad_mcp.config import load_config
+from onshape_duet.config import load_config
 
 
 def test_default_budget_is_zero():

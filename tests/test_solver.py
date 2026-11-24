@@ -1,8 +1,8 @@
 import pytest
 
-from onshape_cad_mcp.model import Variable
-from onshape_cad_mcp.sketch.solver import DofReport, analyze
-from onshape_cad_mcp.sketch.spec import (
+from onshape_duet.model import Variable
+from onshape_duet.sketch.solver import DofReport, analyze
+from onshape_duet.sketch.spec import (
     SketchSpecError,
     evaluate_variables,
     parse_sketch_spec,
@@ -283,7 +283,7 @@ def _fd_sketch():
 
 def test_analytic_jacobian_matches_finite_differences():
     import numpy as np
-    from onshape_cad_mcp.sketch.solver import build_rows
+    from onshape_duet.sketch.solver import build_rows
 
     rows, lay = build_rows(parse_sketch_spec(_fd_sketch(), {}))
     x0 = np.array(lay.x, dtype=float)
@@ -304,7 +304,7 @@ def test_analytic_jacobian_matches_finite_differences():
 # --- final-review fixes: I4 numeric problems ---
 
 def _sk(entities, constraints=(), dimensions=()):
-    from onshape_cad_mcp.sketch.spec import parse_sketch_spec
+    from onshape_duet.sketch.spec import parse_sketch_spec
     return parse_sketch_spec({"entities": entities, "constraints": list(constraints),
                               "dimensions": list(dimensions)}, {})
 
@@ -316,8 +316,8 @@ def test_non_finite_numbers_rejected(bad):
 
 
 def test_non_finite_variable_rejected():
-    from onshape_cad_mcp.model import Variable
-    from onshape_cad_mcp.sketch.spec import evaluate_variables
+    from onshape_duet.model import Variable
+    from onshape_duet.sketch.spec import evaluate_variables
     with pytest.raises(SketchSpecError, match="finite"):
         evaluate_variables([Variable("w", "1e999 mm")])
 
@@ -366,7 +366,7 @@ def test_wrong_unsigned_distance_still_conflicts():
 
 
 def test_serializer_emits_positive_distance_with_orientation():
-    from onshape_cad_mcp.sketch.serialize import to_feature_json
+    from onshape_duet.sketch.serialize import to_feature_json
     sk = _sk([{"id": "p", "type": "point", "x": -5, "y": 3}],
              dimensions=[{"type": "distance_h", "ref": "p", "value": 5}])
     dim = next(c for c in to_feature_json(sk, "S")["constraints"] if c["constraintType"] == "DISTANCE")
@@ -384,13 +384,13 @@ def test_entity_ids_restricted(bad_id):
 
 @pytest.mark.parametrize("plane", ["Back", "front", 3, ["Front"], "JCC"])
 def test_unknown_plane_rejected(plane):
-    from onshape_cad_mcp.sketch.spec import parse_sketch_spec
+    from onshape_duet.sketch.spec import parse_sketch_spec
     with pytest.raises(SketchSpecError, match="plane"):
         parse_sketch_spec({"plane": plane, "entities": []}, {})
 
 
 def test_two_point_horizontal_serializes():
-    from onshape_cad_mcp.sketch.serialize import to_feature_json
+    from onshape_duet.sketch.serialize import to_feature_json
     sk = _sk([{"id": "a", "type": "point", "x": 0, "y": 0}, {"id": "b", "type": "point", "x": 5, "y": 0}],
              constraints=[{"type": "horizontal", "refs": ["a", "b"]}])
     con = to_feature_json(sk, "S")["constraints"][0]
@@ -445,7 +445,7 @@ def test_ground_conflict_message_says_point_is_not_at_the_origin():
 
 def test_every_row_jacobian_matches_finite_differences():
     import numpy as np
-    from onshape_cad_mcp.sketch.solver import build_rows
+    from onshape_duet.sketch.solver import build_rows
     spec = {"plane": "Front",
             "entities": [{"id": "a", "type": "line", "start": [1, 2], "end": [7, 4]},
                          {"id": "b", "type": "line", "start": [-3, 5], "end": [2, 11]},

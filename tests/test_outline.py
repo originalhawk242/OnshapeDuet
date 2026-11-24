@@ -1,6 +1,6 @@
-from onshape_cad_mcp.model import Feature, FeatureList, Variable
-from onshape_cad_mcp.outline import render_outline
-from onshape_cad_mcp.sketch.solver import DofReport
+from onshape_duet.model import Feature, FeatureList, Variable
+from onshape_duet.outline import render_outline
+from onshape_duet.sketch.solver import DofReport
 
 
 def _fl(*feats):

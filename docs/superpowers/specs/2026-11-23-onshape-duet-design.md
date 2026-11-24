@@ -1,4 +1,4 @@
-# Onshape CAD MCP (working name) — Design
+# OnshapeDuet (working name) — Design
 
 Status: DRAFT, awaiting approval. Date: 2026-11-23.
 

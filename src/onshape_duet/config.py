@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 @dataclass(frozen=True)
 class Config:
     budget: int = 0
-    ledger_path: Path = field(default_factory=lambda: Path.home() / ".onshape-cad-mcp" / "ledger.json")
+    ledger_path: Path = field(default_factory=lambda: Path.home() / ".onshape-duet" / "ledger.json")
     key_env: str = "ONSHAPE_ACCESS_KEY"
     secret_env: str = "ONSHAPE_SECRET_KEY"
     base_url: str = "https://cad.onshape.com"

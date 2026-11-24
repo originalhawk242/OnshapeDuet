@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "onshape-cad-mcp"
+name = "onshape-duet"
 version = "0.1.0"
 description = "MCP server for driving Onshape CAD"
 readme = "README.md"
@@ -16,7 +16,7 @@ dependencies = ["mcp>=2.3,<3", "httpx>=0.28.1", "numpy>=2.0"]
 dev = ["pytest"]
 
 [project.scripts]
-onshape-cad-mcp = "onshape_cad_mcp.server:main"
+onshape-duet = "onshape_duet.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

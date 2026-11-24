@@ -1,14 +1,14 @@
 import pytest
 
-from onshape_cad_mcp.backends.fake import FakeBackend
-from onshape_cad_mcp.budget import Ledger
-from onshape_cad_mcp.cache import DocCache
-from onshape_cad_mcp.config import Config
-from onshape_cad_mcp.docref import DocRef
-from onshape_cad_mcp.model import Variable
-from onshape_cad_mcp.sketch.serialize import to_feature_json
-from onshape_cad_mcp.sketch.spec import SketchSpecError, parse_sketch_spec
-from onshape_cad_mcp.tools import Context, cad_sketch
+from onshape_duet.backends.fake import FakeBackend
+from onshape_duet.budget import Ledger
+from onshape_duet.cache import DocCache
+from onshape_duet.config import Config
+from onshape_duet.docref import DocRef
+from onshape_duet.model import Variable
+from onshape_duet.sketch.serialize import to_feature_json
+from onshape_duet.sketch.spec import SketchSpecError, parse_sketch_spec
+from onshape_duet.tools import Context, cad_sketch
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 
@@ -207,7 +207,7 @@ def test_hash_reference_with_invalid_name_is_rejected_before_serialising(env, ba
 
 
 def test_fake_sketch_recognised_by_outline(env):
-    from onshape_cad_mcp.outline import render_outline
+    from onshape_duet.outline import render_outline
     ctx, _, _ = env
     ctx.read(REF)
     cad_sketch(ctx, REF, "Base", SPEC, apply=True)
@@ -229,7 +229,7 @@ def test_zero_budget_returns_error_dict(tmp_path):
 # --- final-review fixes: I2 (unknown outcome) ---
 
 def _unknown_env(tmp_path, exc):
-    from onshape_cad_mcp.backends.base import PostWriteError  # noqa: F401
+    from onshape_duet.backends.base import PostWriteError  # noqa: F401
 
     class Boom(FakeBackend):
         def add_feature(self, ref, feature_json, expected_microversion):
@@ -242,8 +242,8 @@ def _unknown_env(tmp_path, exc):
 
 
 @pytest.mark.parametrize("make_exc", [
-    lambda: __import__("onshape_cad_mcp.backends.base", fromlist=["x"]).PostWriteError("follow-up failed"),
-    lambda: __import__("onshape_cad_mcp.backends.base", fromlist=["x"]).StaleVersion("skew", may_have_landed=True),
+    lambda: __import__("onshape_duet.backends.base", fromlist=["x"]).PostWriteError("follow-up failed"),
+    lambda: __import__("onshape_duet.backends.base", fromlist=["x"]).StaleVersion("skew", may_have_landed=True),
 ])
 def test_sketch_post_write_failure_reports_unknown(tmp_path, make_exc):
     ctx, backend = _unknown_env(tmp_path, make_exc())
@@ -310,7 +310,7 @@ def test_serializer_never_emits_constraints_on_unassessed_entities():
 
 @pytest.mark.parametrize("status", ["ERROR", "WARNING", "INFO"])
 def test_apply_reports_regeneration_status(tmp_path, status):
-    from onshape_cad_mcp.model import Feature, WriteResult
+    from onshape_duet.model import Feature, WriteResult
 
     class Regen(FakeBackend):
         def add_feature(self, ref, feature_json, expected_microversion):

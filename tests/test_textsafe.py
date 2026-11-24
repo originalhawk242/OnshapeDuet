@@ -1,4 +1,4 @@
-from onshape_cad_mcp.textsafe import clean
+from onshape_duet.textsafe import clean
 
 
 def test_collapses_whitespace_and_controls():

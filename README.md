@@ -1,4 +1,4 @@
-# onshape-cad-mcp
+# OnshapeDuet
 
 A Python MCP server that lets an AI agent read and edit Onshape Part Studios in a safe, budgeted way. MIT licensed. Early work in progress.
 
@@ -23,17 +23,17 @@ Create an Onshape API key and export it (names are configurable):
 export ONSHAPE_ACCESS_KEY=...   ONSHAPE_SECRET_KEY=...
 ```
 
-Config file `~/.onshape-cad-mcp/config.toml` (or the path in `ONSHAPE_CAD_MCP_CONFIG`):
+Config file `~/.onshape-duet/config.toml` (or the path in `ONSHAPE_DUET_CONFIG`):
 
 ```
 budget = 40                     # max Onshape requests, ever, until you raise it; default 0 sends nothing
-# ledger_path = "~/.onshape-cad-mcp/ledger.json"
+# ledger_path = "~/.onshape-duet/ledger.json"
 # key_env = "ONSHAPE_ACCESS_KEY"
 # secret_env = "ONSHAPE_SECRET_KEY"
 # base_url = "https://cad.onshape.com"   # enterprise stacks: set your own host; URLs for other hosts are refused
 ```
 
-Register the `onshape-cad-mcp` command as a stdio MCP server in your client. Credentials are read from the environment only.
+Register the `onshape-duet` command as a stdio MCP server in your client. Credentials are read from the environment only.
 
 ## Docs
 

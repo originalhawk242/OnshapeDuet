@@ -1,11 +1,11 @@
 import pytest
 
-from onshape_cad_mcp.backends.fake import FakeBackend
-from onshape_cad_mcp.budget import Ledger
-from onshape_cad_mcp.cache import DocCache
-from onshape_cad_mcp.config import Config
-from onshape_cad_mcp.docref import DocRef
-from onshape_cad_mcp.tools import Context, cad_variable
+from onshape_duet.backends.fake import FakeBackend
+from onshape_duet.budget import Ledger
+from onshape_duet.cache import DocCache
+from onshape_duet.config import Config
+from onshape_duet.docref import DocRef
+from onshape_duet.tools import Context, cad_variable
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 
@@ -111,7 +111,7 @@ def test_old_expression_text_is_cleaned(env):
 # --- final-review fixes: I2 (unknown outcome) ---
 
 def test_variable_post_write_failure_reports_unknown(tmp_path):
-    from onshape_cad_mcp.backends.base import PostWriteError
+    from onshape_duet.backends.base import PostWriteError
 
     class Boom(FakeBackend):
         def set_variable(self, *a, **k):

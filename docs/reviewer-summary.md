@@ -1,4 +1,4 @@
-# Onshape CAD MCP — Summary for Reviewers
+# OnshapeDuet — Summary for Reviewers
 
 Working name; Python, MIT-licensed. Status: design draft, nothing built yet.
 

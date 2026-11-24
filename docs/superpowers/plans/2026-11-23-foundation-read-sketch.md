@@ -8,11 +8,11 @@
 
 **Tech Stack:** Python 3.11+, `mcp` (official SDK, FastMCP), `httpx`, `numpy`, `pytest`. MIT license.
 
-**Spec:** `docs/superpowers/specs/2026-11-23-onshape-cad-mcp-design.md` (milestones 1–3). Later milestones (typed features, generic feature layer, lifecycle, assemblies, benchmark) get their own plans.
+**Spec:** `docs/superpowers/specs/2026-11-23-onshape-duet-design.md` (milestones 1–3). Later milestones (typed features, generic feature layer, lifecycle, assemblies, benchmark) get their own plans.
 
 ## Global Constraints
 
-- Python 3.11+, MIT license, package `onshape_cad_mcp` under `src/`. No TypeScript.
+- Python 3.11+, MIT license, package `onshape_duet` under `src/`. No TypeScript.
 - Do not copy code from `bogdanr/onshape-mcp` (GPL-3.0) or `hedless/onshape-mcp` (no LICENSE file). The solver is clean-room from the algorithm (rank of the constraint Jacobian).
 - Port from `saltyeg/cadkit-mcp` (only `cadkit_mcp/`) or `ReshefElisha/jarvis-onshape-mcp` (only its own additions) only after checking the file is not hedless-derived; keep attribution in a `NOTICE` file.
 - Request budget defaults to 0; only the owner's config file raises it. Every request is charged before it is sent, retries and redirects included.
@@ -34,7 +34,7 @@
 
 ```
 pyproject.toml  LICENSE  NOTICE  README.md
-src/onshape_cad_mcp/
+src/onshape_duet/
   config.py        Config + load_config(path)
   docref.py        DocRef + parse_url
   budget.py        Ledger, BudgetExceeded
@@ -58,13 +58,13 @@ tests/  (mirrors modules)
 ### Task 1: Scaffold, config and document references
 
 **Files:**
-- Create: `pyproject.toml`, `LICENSE` (MIT), `NOTICE`, `src/onshape_cad_mcp/__init__.py`, `config.py`, `docref.py`
+- Create: `pyproject.toml`, `LICENSE` (MIT), `NOTICE`, `src/onshape_duet/__init__.py`, `config.py`, `docref.py`
 - Test: `tests/test_config.py`, `tests/test_docref.py`
 
 **Interfaces:**
 - Produces: `Config(budget: int, ledger_path: Path, key_env: str, secret_env: str, base_url: str)`; `load_config(path: Path | None) -> Config` (missing file → defaults with `budget=0`); `DocRef(document: str, workspace: str, element: str)`; `parse_url(url: str) -> DocRef` (raises `ValueError` on non-Onshape-document URLs).
 
-- [ ] **Step 1:** `git init`; write `pyproject.toml` (deps above, `pytest` in dev extras, entry point `onshape-cad-mcp = onshape_cad_mcp.server:main`) and the MIT `LICENSE`.
+- [ ] **Step 1:** `git init`; write `pyproject.toml` (deps above, `pytest` in dev extras, entry point `onshape-duet = onshape_duet.server:main`) and the MIT `LICENSE`.
 - [ ] **Step 2: Write failing tests.** `test_default_budget_is_zero`: `load_config(None).budget == 0`. `test_toml_sets_budget`: a TOML with `budget = 40` loads to `40`. `test_parse_url`: `parse_url("https://cad.onshape.com/documents/d1/w/w2/e/e3") == DocRef("d1","w2","e3")`; `test_parse_bad_url_raises`: `parse_url("https://example.com")` raises `ValueError`.
 - [ ] **Step 3:** Run `pytest tests/test_config.py tests/test_docref.py -v`; expect FAIL (import errors).
 - [ ] **Step 4:** Implement `config.py` (stdlib `tomllib`) and `docref.py` (regex on `/documents/<d>/(w|v)/<w>/e/<e>`; version URLs (`/v/`) are accepted and treated as read-only later).

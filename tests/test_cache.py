@@ -1,7 +1,7 @@
-from onshape_cad_mcp.backends.fake import FakeBackend
-from onshape_cad_mcp.budget import Ledger
-from onshape_cad_mcp.cache import DocCache
-from onshape_cad_mcp.docref import DocRef
+from onshape_duet.backends.fake import FakeBackend
+from onshape_duet.budget import Ledger
+from onshape_duet.cache import DocCache
+from onshape_duet.docref import DocRef
 
 REF = DocRef("a"*24, "b"*24, "c"*24)
 FEAT = {"type": "sketch", "name": "S1", "status": "OK", "params": {"a": 1}}
@@ -109,7 +109,7 @@ def test_note_write_without_expected_version_drops_entry():
 
 
 def test_note_write_replaces_the_feature_with_the_same_id_and_keeps_order():
-    from onshape_cad_mcp.model import Feature
+    from onshape_duet.model import Feature
     b = FakeBackend()
     c = DocCache(b)
     mv = c.read(REF).microversion

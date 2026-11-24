@@ -1,14 +1,14 @@
 import pytest
 
-from onshape_cad_mcp.backends.fake import FakeBackend
-from onshape_cad_mcp.budget import Ledger
-from onshape_cad_mcp.cache import DocCache
-from onshape_cad_mcp.config import Config
-from onshape_cad_mcp.docref import DocRef
-from onshape_cad_mcp.lint import Finding, lint_sketch
-from onshape_cad_mcp.sketch.solver import analyze
-from onshape_cad_mcp.sketch.spec import parse_sketch_spec
-from onshape_cad_mcp.tools import Context, cad_sketch
+from onshape_duet.backends.fake import FakeBackend
+from onshape_duet.budget import Ledger
+from onshape_duet.cache import DocCache
+from onshape_duet.config import Config
+from onshape_duet.docref import DocRef
+from onshape_duet.lint import Finding, lint_sketch
+from onshape_duet.sketch.solver import analyze
+from onshape_duet.sketch.spec import parse_sketch_spec
+from onshape_duet.tools import Context, cad_sketch
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 

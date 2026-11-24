@@ -15,7 +15,7 @@ from .config import load_config
 from .docref import parse_url
 from .tools import Context, cad_read, cad_sketch, cad_status, cad_variable
 
-DEFAULT_CONFIG = Path.home() / ".onshape-cad-mcp" / "config.toml"
+DEFAULT_CONFIG = Path.home() / ".onshape-duet" / "config.toml"
 
 
 def build_context(config_path: Path | None) -> Context:
@@ -27,7 +27,7 @@ def build_context(config_path: Path | None) -> Context:
 
 
 def build_server(ctx: Context) -> MCPServer:
-    mcp = MCPServer("onshape-cad-mcp")
+    mcp = MCPServer("onshape-duet")
 
     @mcp.tool(name="cad_status")
     def cad_status_tool() -> dict:
@@ -74,12 +74,12 @@ def build_server(ctx: Context) -> MCPServer:
 
 
 def main() -> None:
-    env = os.environ.get("ONSHAPE_CAD_MCP_CONFIG")
+    env = os.environ.get("ONSHAPE_DUET_CONFIG")
     path = Path(env).expanduser() if env else DEFAULT_CONFIG
     try:
         ctx = build_context(path)
     except ValueError as e:
-        print(f"onshape-cad-mcp: invalid config {path}: {e}", file=sys.stderr)
+        print(f"onshape-duet: invalid config {path}: {e}", file=sys.stderr)
         raise SystemExit(2) from None
     build_server(ctx).run("stdio")
 

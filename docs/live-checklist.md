@@ -23,10 +23,10 @@ feature). Record the request count of every step.
    ```python
    import os
    from pathlib import Path
-   from onshape_cad_mcp.server import build_context, DEFAULT_CONFIG
-   from onshape_cad_mcp.docref import parse_url
+   from onshape_duet.server import build_context, DEFAULT_CONFIG
+   from onshape_duet.docref import parse_url
 
-   path = Path(os.environ.get("ONSHAPE_CAD_MCP_CONFIG", DEFAULT_CONFIG)).expanduser()
+   path = Path(os.environ.get("ONSHAPE_DUET_CONFIG", DEFAULT_CONFIG)).expanduser()
    ctx = build_context(path)          # makes no request
    backend, ledger = ctx.backend, ctx.ledger
    ref = parse_url("https://cad.onshape.com/documents/<did>/w/<wid>/e/<eid>",

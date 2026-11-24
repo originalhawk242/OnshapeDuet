@@ -40,9 +40,9 @@ Write down any property whose test is weak or missing; that is a finding.
 
 With the default budget (0) the server must refuse to talk to Onshape. This checks the wiring without spending anything.
 
-1. Do not export credentials for this part. Make sure no config sets a budget (`ls ~/.onshape-cad-mcp/config.toml`, or point `ONSHAPE_CAD_MCP_CONFIG` at a file with `budget = 0`).
+1. Do not export credentials for this part. Make sure no config sets a budget (`ls ~/.onshape-duet/config.toml`, or point `ONSHAPE_DUET_CONFIG` at a file with `budget = 0`).
 2. Register the server with the Claude Code CLI, using the venv's absolute path:
-   `claude mcp add onshape-cad -- <repo>/.venv/bin/onshape-cad-mcp`, then start a new session (or `/mcp`) so the tools load.
+   `claude mcp add onshape-cad -- <repo>/.venv/bin/onshape-duet`, then start a new session (or `/mcp`) so the tools load.
 3. Call the tools and check:
    - `cad_status`: budget 0, used 0, credentials not present, **zero requests**.
    - `cad_read` with a syntactically valid URL (`https://cad.onshape.com/documents/<24 hex>/w/<24 hex>/e/<24 hex>`): an error; nothing sent. With no credentials exported the error names the missing credentials first (before the budget hint); with credentials set it tells you to set `budget` in the config file.
@@ -53,7 +53,7 @@ With the default budget (0) the server must refuse to talk to Onshape. This chec
 
 ## Part C: live Onshape (needs owner input)
 
-**Preconditions (ask the owner if any is missing):** (1) an Onshape API key pair exported as the environment variables above, with read **and** write scopes; (2) a new throwaway document with one empty Part Studio, and its URL; (3) a budget of at least 40 requests set in `~/.onshape-cad-mcp/config.toml` (`budget = 40`). The ledger is persistent: used requests do not reset between sessions.
+**Preconditions (ask the owner if any is missing):** (1) an Onshape API key pair exported as the environment variables above, with read **and** write scopes; (2) a new throwaway document with one empty Part Studio, and its URL; (3) a budget of at least 40 requests set in `~/.onshape-duet/config.toml` (`budget = 40`). The ledger is persistent: used requests do not reset between sessions.
 
 Run the steps in the order of [live-checklist.md](live-checklist.md), which holds the full rationale. Use this table to track results and request counts (the ledger lines `requests used` / `budget left` at the end of each tool reply give the numbers).
 

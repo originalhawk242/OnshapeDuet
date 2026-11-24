@@ -2,11 +2,11 @@ from collections import Counter
 
 import pytest
 
-from onshape_cad_mcp.backends.base import StaleVersion
-from onshape_cad_mcp.backends.fake import FakeBackend
-from onshape_cad_mcp.budget import BudgetExceeded, Ledger
-from onshape_cad_mcp.docref import DocRef
-from onshape_cad_mcp.model import Feature, FeatureList, Variable, WriteResult
+from onshape_duet.backends.base import StaleVersion
+from onshape_duet.backends.fake import FakeBackend
+from onshape_duet.budget import BudgetExceeded, Ledger
+from onshape_duet.docref import DocRef
+from onshape_duet.model import Feature, FeatureList, Variable, WriteResult
 
 REF = DocRef("a"*24, "b"*24, "c"*24)
 FEAT = {"type": "sketch", "name": "S1", "status": "OK", "params": {"a": 1}}

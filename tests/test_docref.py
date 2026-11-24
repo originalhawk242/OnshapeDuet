@@ -1,6 +1,6 @@
 import pytest
 
-from onshape_cad_mcp.docref import DocRef, parse_url
+from onshape_duet.docref import DocRef, parse_url
 
 D, W, E = "a" * 24, "b" * 24, "c" * 24
 

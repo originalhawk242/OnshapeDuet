@@ -4,13 +4,13 @@ import httpx
 
 import pytest
 
-from onshape_cad_mcp import server
-from onshape_cad_mcp.backends.fake import FakeBackend
-from onshape_cad_mcp.budget import Ledger
-from onshape_cad_mcp.cache import DocCache
-from onshape_cad_mcp.config import Config
-from onshape_cad_mcp.docref import DocRef
-from onshape_cad_mcp.tools import Context, cad_read, cad_status, cad_variable
+from onshape_duet import server
+from onshape_duet.backends.fake import FakeBackend
+from onshape_duet.budget import Ledger
+from onshape_duet.cache import DocCache
+from onshape_duet.config import Config
+from onshape_duet.docref import DocRef
+from onshape_duet.tools import Context, cad_read, cad_status, cad_variable
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 
@@ -119,7 +119,7 @@ def test_read_transport_error_returns_error_and_counts(tmp_path, fail):
 
 
 def test_sketch_and_variable_transport_errors(tmp_path):
-    from onshape_cad_mcp.tools import cad_sketch
+    from onshape_duet.tools import cad_sketch
     ctx, ledger = flaky_ctx(tmp_path, {"get_microversion"})
     spec = {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [5, 0]}],
             "dimensions": [{"type": "length", "ref": "l", "value": "#w"}]}
@@ -152,7 +152,7 @@ def test_corrupt_ledger_read_and_status(tmp_path):
 def test_main_bad_config_exits_cleanly(tmp_path, monkeypatch, capsys):
     cfg = tmp_path / "bad.toml"
     cfg.write_text("budget = [")
-    monkeypatch.setenv("ONSHAPE_CAD_MCP_CONFIG", str(cfg))
+    monkeypatch.setenv("ONSHAPE_DUET_CONFIG", str(cfg))
     with pytest.raises(SystemExit) as e:
         server.main()
     assert e.value.code != 0
@@ -174,7 +174,7 @@ def test_cad_read_costs_2_on_fresh_document_and_1_when_unchanged(tmp_path):
 
 
 def test_dry_runs_after_a_read_cost_zero_requests(tmp_path):
-    from onshape_cad_mcp.tools import cad_sketch
+    from onshape_duet.tools import cad_sketch
     ctx, backend, ledger = make(tmp_path)
     backend._doc(REF).variables["w"] = "50 mm"
     cad_read(ctx, REF)
@@ -223,7 +223,7 @@ def test_variable_update_passes_existing_feature_id(tmp_path):
 
 
 def test_unreferenced_derived_variable_does_not_block_sketches(tmp_path):
-    from onshape_cad_mcp.tools import cad_sketch
+    from onshape_duet.tools import cad_sketch
     ctx, backend, _ = make(tmp_path)
     backend._doc(REF).variables["w"] = "10 mm"
     backend._doc(REF).variables["h"] = "#w * 2"

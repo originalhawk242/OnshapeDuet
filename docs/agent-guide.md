@@ -1,4 +1,4 @@
-# Agent guide: onshape-cad-mcp
+# Agent guide: onshape-duet
 
 Workflow: `cad_status` -> `cad_read` -> dry run -> show the owner -> apply -> `cad_read`.
 
@@ -25,10 +25,10 @@ Reading existing sketches into DOF reports is not implemented: every sketch in `
 ## For the owner: CLAUDE.md snippet
 ```
 ## Onshape CAD
-Use the onshape-cad-mcp tools for Onshape work. Order: cad_status, cad_read,
+Use the onshape-duet tools for Onshape work. Order: cad_status, cad_read,
 dry run (default), show me the result, apply only after I agree, cad_read again.
 Never apply without a prior cad_read. If a tool refuses, report it; do not work around it.
 Credentials come from the environment variables named in the config
 (default ONSHAPE_ACCESS_KEY / ONSHAPE_SECRET_KEY); never print or store them.
-Config path: $ONSHAPE_CAD_MCP_CONFIG or ~/.onshape-cad-mcp/config.toml (set `budget`).
+Config path: $ONSHAPE_DUET_CONFIG or ~/.onshape-duet/config.toml (set `budget`).
 ```

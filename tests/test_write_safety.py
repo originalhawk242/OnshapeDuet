@@ -10,12 +10,12 @@ import json
 import httpx
 import pytest
 
-from onshape_cad_mcp.backends.onshape import OnshapeBackend
-from onshape_cad_mcp.budget import Ledger
-from onshape_cad_mcp.cache import DocCache
-from onshape_cad_mcp.config import Config
-from onshape_cad_mcp.docref import DocRef
-from onshape_cad_mcp.tools import Context, cad_sketch, cad_variable
+from onshape_duet.backends.onshape import OnshapeBackend
+from onshape_duet.budget import Ledger
+from onshape_duet.cache import DocCache
+from onshape_duet.config import Config
+from onshape_duet.docref import DocRef
+from onshape_duet.tools import Context, cad_sketch, cad_variable
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 SPEC = {"plane": "Front",
