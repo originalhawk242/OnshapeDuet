@@ -22,9 +22,12 @@ from .budget import BudgetExceeded, Ledger
 from .cache import DocCache
 from .config import Config
 from .docref import DocRef
+from .features.params import feature as _btm_feature
 from .generic.lookup import find_feature
+from .generic.lint import lint_generic
 from .generic.render import render_feature, render_spec, render_spec_index
 from .generic.specs import FeatureSpec
+from .generic.validate import prepare
 from .lint import Finding, lint_sketch
 from .model import Feature, FeatureList
 from .outline import render_outline
@@ -255,6 +258,45 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
         return _reply(ctx, start, False, **extra)
 
     return _apply_feature(ctx, ref, start, feature_json, extra, "the sketch")
+
+
+@_locked
+def cad_feature_add(ctx: Context, ref: DocRef, feature_type: str, name: str, params: dict,
+                    apply: bool = False) -> dict:
+    start = _start(ctx)
+    if not isinstance(name, str) or not 1 <= len(name) <= 64 or not name.isprintable():
+        return _reply(ctx, start, False,
+                      error="invalid name: must be 1-64 printable characters")
+    if apply and ref not in ctx.last_read:
+        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
+    try:
+        specs = ctx.feature_specs(ref)
+        fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
+    except StaleVersion:
+        return _reply(ctx, start, False, error=_refusal(ctx, ref))
+    except _FAILURES as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+
+    spec_by_type = {s.type: s for s in specs}
+    prepared = prepare(spec_by_type, feature_type, params, fl, mode="add")
+    findings = list(prepared.findings)
+    spec = spec_by_type.get(feature_type) if isinstance(feature_type, str) else None
+    if spec is not None:  # no native spec: prepare's refusal is the whole story
+        findings += lint_generic(feature_type, name, params, spec, fl, mode="add")
+    extra = {"feature_type": clean(feature_type, 60), "name": name, "params": prepared.readable,
+             "defaults_applied": prepared.defaults_applied,
+             "findings": [f.to_dict() for f in findings],
+             "based_on_version": clean(based, 64)}
+    refusals = [f for f in findings if f.level == "refuse"]
+    if refusals:
+        return _reply(ctx, start, False,
+                      error="refused, nothing written: " + "; ".join(
+                          f"{f.code}: {f.message}" for f in refusals), **extra)
+    if not apply:
+        return _reply(ctx, start, False, **extra)
+    return _apply_feature(ctx, ref, start,
+                          _btm_feature(feature_type, name, prepared.parameters), extra,
+                          f"the {clean(spec.name, 60)} feature")
 
 
 @_locked

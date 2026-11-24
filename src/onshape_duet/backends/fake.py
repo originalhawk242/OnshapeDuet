@@ -73,6 +73,8 @@ class FakeBackend:
         self.next_status: str | None = None
         # Raw featurespecs response served by get_feature_specs (tests assign a fixture).
         self.specs_json: dict = {"featureSpecs": []}
+        # Deep copy of the feature_json most recently passed to add_feature.
+        self.last_feature_json: dict | None = None
 
     def _doc(self, ref: DocRef) -> _Doc:
         return self._docs.setdefault(ref, _Doc())
@@ -113,6 +115,7 @@ class FakeBackend:
         self._enter("add_feature")
         d = self._doc(ref)
         self._check(d, expected_microversion)
+        self.last_feature_json = copy.deepcopy(feature_json)
         parameters = feature_json.get("parameters")
         status = self.next_status or feature_json.get("status", "OK")
         self.next_status = None
