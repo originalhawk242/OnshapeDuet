@@ -13,8 +13,8 @@ from .budget import Ledger
 from .cache import DocCache
 from .config import load_config
 from .docref import parse_url
-from .tools import (Context, cad_feature_add, cad_inspect, cad_read, cad_sketch, cad_specs, cad_status,
-                    cad_variable)
+from .tools import (Context, cad_feature_add, cad_feature_update, cad_inspect, cad_read,
+                    cad_sketch, cad_specs, cad_status, cad_variable)
 
 DEFAULT_CONFIG = Path.home() / ".onshape-duet" / "config.toml"
 
@@ -86,6 +86,23 @@ def build_server(ctx: Context) -> MCPServer:
         except ValueError as e:
             return {"applied": False, "error": str(e)}
         return cad_feature_add(ctx, ref, feature_type, name, params, apply)
+
+    @mcp.tool(name="cad_feature_update")
+    def cad_feature_update_tool(url: str, feature: str, params: dict,
+                                apply: StrictBool = False) -> dict:
+        """Update parameters of an existing native feature, by name or id. DRY RUN IS
+        THE DEFAULT: nothing is written unless apply=True. Read the document
+        (cad_read) first; stale writes are refused. Changes only the named
+        parameters and sends everything else back exactly as read. Array
+        parameters take a list (replaces all items; refused over human-picked
+        geometry) or {"items": {"<index>": {...}}} to patch single items. Cost: 0
+        requests for a dry run after a read, 2 for apply. After updating a feature
+        that is not the last one, re-read (cad_read) before the next write."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_feature_update(ctx, ref, feature, params, apply)
 
     @mcp.tool(name="cad_specs")
     def cad_specs_tool(url: str, feature_type: str | None = None) -> dict:

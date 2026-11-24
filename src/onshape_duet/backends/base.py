@@ -43,6 +43,12 @@ class Backend(Protocol):
         caller's pre-POST version check, not the server."""
         ...
 
+    def update_feature(self, ref: DocRef, feature_id: str, feature_json: dict,
+                       expected_microversion: str) -> WriteResult:
+        """Replace the existing feature `feature_id` with feature_json, in place.
+        Same failure contract as add_feature."""
+        ...
+
     def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,
                      feature_id: str | None = None) -> WriteResult:
         """Returns a WriteResult: the variable feature (id, regeneration status;

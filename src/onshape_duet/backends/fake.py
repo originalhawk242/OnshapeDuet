@@ -134,6 +134,32 @@ class FakeBackend:
         d.version += 1
         return WriteResult(copy.deepcopy(feat), self._mv(d))
 
+    def update_feature(self, ref: DocRef, feature_id: str, feature_json: dict,
+                       expected_microversion: str) -> WriteResult:
+        self._enter("update_feature")
+        d = self._doc(ref)
+        self._check(d, expected_microversion)
+        index = next((i for i, f in enumerate(d.features) if f.id == feature_id), None)
+        if index is None:
+            raise RuntimeError("no such feature")
+        self.last_feature_json = copy.deepcopy(feature_json)
+        parameters = feature_json.get("parameters")
+        status = self.next_status or feature_json.get("status", "OK")
+        self.next_status = None
+        feat = Feature(
+            id=feature_id,
+            type=feature_json.get("featureType") or feature_json.get("type") or feature_json.get("btType") or "",
+            name=feature_json.get("name", ""),
+            status=status,
+            params=(flatten_params(parameters) if isinstance(parameters, list)
+                    else copy.deepcopy(feature_json.get("params", {}))),
+            raw=({**copy.deepcopy(feature_json), "featureId": feature_id}
+                 if isinstance(parameters, list) else {}),
+        )
+        d.features[index] = feat
+        d.version += 1
+        return WriteResult(copy.deepcopy(feat), self._mv(d))
+
     def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,
                      feature_id: str | None = None) -> WriteResult:
         self._enter("set_variable")

@@ -25,9 +25,10 @@ from .docref import DocRef
 from .features.params import feature as _btm_feature
 from .generic.lookup import find_feature
 from .generic.lint import lint_generic
+from .generic.update import merge
 from .generic.render import render_feature, render_spec, render_spec_index
 from .generic.specs import FeatureSpec
-from .generic.validate import prepare
+from .generic.validate import TYPED_TOOL_REQUIRED, prepare
 from .lint import Finding, lint_sketch
 from .model import Feature, FeatureList
 from .outline import render_outline
@@ -103,6 +104,8 @@ class Context:
 _NO_READ = "read the document first (cad_read) before applying"
 _REFETCHED = ("the write landed, but its new version was fetched separately and may include "
               "edits you have not read; re-read with cad_read before the next write")
+_MIDTREE = ("features after this one may have changed status; "
+            "re-read with cad_read before the next write")
 _NEW_VARIABLE = ("re-read with cad_read before the next write: a variable was just created, "
                  "so the cached feature list no longer matches the document")
 
@@ -187,13 +190,23 @@ def _backstop(ctx: Context, ref: DocRef, expected: str) -> None:
 
 
 def _apply_feature(ctx: Context, ref: DocRef, start, feature_json: dict, extra: dict,
-                   what: str) -> dict:
+                   what: str, *, feature_id: str | None = None) -> dict:
     """Shared apply path for every feature write (lock already held). `extra` must
-    hold a `findings` list; `what` names the written thing in the regen warning."""
+    hold a `findings` list; `what` names the written thing in the regen warning.
+    With `feature_id` the existing feature is updated in place instead of added."""
     try:
         expected = ctx.last_read[ref]
         _backstop(ctx, ref, expected)
-        result = ctx.backend.add_feature(ref, feature_json, expected_microversion=expected)
+        if feature_id is None:
+            result = ctx.backend.add_feature(ref, feature_json, expected_microversion=expected)
+        else:
+            # Decided at the pinned version, before the write: only an update of the
+            # last feature leaves the cached list valid (nothing after it to regenerate).
+            cached = ctx.cache.peek(ref)
+            is_last = (cached is not None and cached.microversion == expected
+                       and bool(cached.features) and cached.features[-1].id == feature_id)
+            result = ctx.backend.update_feature(ref, feature_id, feature_json,
+                                                expected_microversion=expected)
     except PostWriteError as e:
         return _unknown(ctx, start, ref, str(e), **extra)
     except StaleVersion as e:
@@ -205,11 +218,14 @@ def _apply_feature(ctx: Context, ref: DocRef, start, feature_json: dict, extra: 
     # note_write splices our feature into the cached list; that is only sound
     # because every write passes expected_microversion (nothing else changed).
     ctx.reread.pop(ref, None)  # a successful write supersedes any earlier hint
-    if result.exact:
+    if result.exact and (feature_id is None or is_last):
         ctx.last_read[ref] = result.microversion
         ctx.cache.note_write(ref, result.microversion, result.feature,
                              expected_microversion=expected)
         extra = dict(extra)
+    elif result.exact:
+        ctx.lose_track(ref, _MIDTREE)
+        extra = {**extra, "note": _MIDTREE}
     else:
         ctx.lose_track(ref, _REFETCHED)
         extra = {**extra, "note": _REFETCHED}
@@ -297,6 +313,55 @@ def cad_feature_add(ctx: Context, ref: DocRef, feature_type: str, name: str, par
     return _apply_feature(ctx, ref, start,
                           _btm_feature(feature_type, name, prepared.parameters), extra,
                           f"the {clean(spec.name, 60)} feature")
+
+
+@_locked
+def cad_feature_update(ctx: Context, ref: DocRef, feature: str, params: dict,
+                       apply: bool = False) -> dict:
+    start = _start(ctx)
+    if not isinstance(feature, str) or not feature:
+        return _reply(ctx, start, False, error="feature must be a feature name or id")
+    if not isinstance(params, dict) or not params:
+        return _reply(ctx, start, False, error="params is empty: name the parameters to change")
+    if apply and ref not in ctx.last_read:
+        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
+    try:
+        specs = ctx.feature_specs(ref)
+        fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
+    except StaleVersion:
+        return _reply(ctx, start, False, error=_refusal(ctx, ref))
+    except _FAILURES as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    try:
+        f = find_feature(fl, feature)
+    except ValueError as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    if not f.raw:
+        return _reply(ctx, start, False,
+                      error="no full copy of this feature; re-read with cad_read first")
+
+    spec_by_type = {s.type: s for s in specs}
+    index = fl.features.index(f)
+    prepared = prepare(spec_by_type, f.type, params, fl, mode="update", self_index=index,
+                       current_raw=f.raw)
+    findings = list(prepared.findings)
+    spec = spec_by_type.get(f.type)
+    if spec is not None and f.type not in TYPED_TOOL_REQUIRED:
+        findings += lint_generic(f.type, None, params, spec, fl, mode="update")
+    extra = {"feature": clean(f.name), "feature_id": clean(f.id, 64), "changes": [],
+             "findings": [x.to_dict() for x in findings], "based_on_version": clean(based, 64)}
+    refusals = [x for x in findings if x.level == "refuse"]
+    if refusals:
+        return _reply(ctx, start, False,
+                      error="refused, nothing written: " + "; ".join(
+                          f"{x.code}: {x.message}" for x in refusals), **extra)
+    new_raw, changes = merge(f.raw, prepared.parameters)
+    extra["changes"] = changes
+    if not apply:
+        return _reply(ctx, start, False, **extra)
+    new_raw.setdefault("featureId", f.id)
+    return _apply_feature(ctx, ref, start, new_raw, extra,
+                          f"the {clean(spec.name, 60)} feature", feature_id=f.id)
 
 
 @_locked

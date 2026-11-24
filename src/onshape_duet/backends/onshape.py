@@ -252,10 +252,22 @@ class OnshapeBackend:
     def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
         body = {"feature": feature_json, "serializationVersion": SERIALIZATION_VERSION}
         data = self._write(features_path(ref), body, expected_microversion)
+        return self._feature_result(ref, data, expected_microversion, "add_feature")
+
+    def update_feature(self, ref: DocRef, feature_id: str, feature_json: dict,
+                       expected_microversion: str) -> WriteResult:
+        if not isinstance(feature_id, str) or not _FEATURE_ID.fullmatch(feature_id):
+            raise RuntimeError("unexpected Onshape response: bad featureId on existing feature")
+        body = {"feature": feature_json, "serializationVersion": SERIALIZATION_VERSION}
+        data = self._write(feature_update_path(ref, feature_id), body, expected_microversion)
+        return self._feature_result(ref, data, expected_microversion, "update_feature")
+
+    def _feature_result(self, ref: DocRef, data: dict, expected_microversion: str,
+                        what: str) -> WriteResult:
         raw = data.get("feature")
         if not isinstance(raw, dict) or not raw.get("featureId"):
             raise PostWriteError(
-                "unexpected Onshape response: add_feature reply missing feature/featureId")
+                f"unexpected Onshape response: {what} reply missing feature/featureId")
         try:
             st = {raw["featureId"]: data.get("featureState") or {}}
             feat = _parse_feature(raw, st)
