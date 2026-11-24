@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
-from pydantic import StrictBool
+from pydantic import StrictBool, StrictFloat, StrictInt, StrictStr
 
 from .backends.onshape import OnshapeBackend
 from .budget import Ledger
@@ -86,7 +86,7 @@ def build_server(ctx: Context) -> MCPServer:
         return cad_find(ctx, ref, selector, evaluate)
 
     @mcp.tool(name="cad_extrude")
-    def cad_extrude_tool(url: str, name: str, sketch: str, depth: float | str | None = None,
+    def cad_extrude_tool(url: str, name: str, sketch: str, depth: StrictFloat | StrictInt | StrictStr | None = None,
                          operation: str = "new", end: str = "blind", flip: StrictBool = False,
                          apply: StrictBool = False) -> dict:
         """Extrude the profile of an existing sketch (referenced by feature name).
@@ -99,7 +99,7 @@ def build_server(ctx: Context) -> MCPServer:
         write is refused. The lint REFUSES (writes nothing) on e.g. a duplicate feature
         name or an unknown variable; WARN findings (magic numbers, default names) are
         advice only. Costs: a dry run is free once the document was read; apply costs 2
-        requests (version check + write)."""
+        requests (version check + write), or 3 when the write reply names no new version."""
         try:
             ref = parse_url(url, ctx.config.base_url)
         except ValueError as e:

@@ -52,6 +52,11 @@ def run_feature(ctx: Context, ref: DocRef, name: str, build: Callable[[FeatureLi
                 apply: bool, what: str) -> dict:
     """Shared dry-run/apply flow for typed feature tools (builds, lints, writes)."""
     start = _start(ctx)
+    if (not isinstance(name, str) or not name.strip() or len(name) > _MAX_NAME
+            or not name.isprintable()):
+        return _reply(ctx, start, False, error=(
+            f"invalid name: must be a non-empty string of at most {_MAX_NAME} printable "
+            "characters"))
     if apply and ref not in ctx.last_read:
         return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
     try:
@@ -64,11 +69,6 @@ def run_feature(ctx: Context, ref: DocRef, name: str, build: Callable[[FeatureLi
         built = build(fl)
     except (FeatureSpecError, *_FAILURES) as e:
         return _reply(ctx, start, False, error=clean(e, 300))
-    if (not isinstance(name, str) or not name or len(name) > _MAX_NAME
-            or not name.isprintable()):
-        return _reply(ctx, start, False, error=(
-            f"invalid name: must be a non-empty string of at most {_MAX_NAME} printable "
-            "characters"))
     feature_json = {**built.feature_json, "name": name}
     findings = lint_feature(name, built.values, fl)
     extra = {"feature_type": feature_json["featureType"], "summary": built.summary,

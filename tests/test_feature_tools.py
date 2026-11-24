@@ -111,3 +111,39 @@ def test_extrude_duplicate_name_refused(with_sketch):
 def test_extrude_bad_name(with_sketch, bad):
     ctx, *_ = with_sketch
     assert "invalid name" in cad_extrude(ctx, REF, bad, "Base", 7)["error"]
+
+
+def test_extrude_summary_sketch_is_cleaned(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    assert cad_sketch(ctx, REF, "Ba\nse", SK, apply=True)["applied"] is True
+    ctx.read(REF)
+    out = cad_extrude(ctx, REF, "Body", "Ba\nse", 7)
+    assert "\n" not in out["summary"]["sketch"]
+
+
+@pytest.mark.parametrize("bad", ["", "   ", "x" * 101, "a\nb", 5])
+def test_extrude_bad_name_costs_zero_requests(with_sketch, bad):
+    ctx, backend, ledger = with_sketch
+    ctx.cache.invalidate(REF)  # a snapshot would now cost a read
+    used = ledger.used
+    out = cad_extrude(ctx, REF, bad, "Base", 7)
+    assert "invalid name" in out["error"] and out["requests"] == 0 and ledger.used == used
+
+
+def test_extrude_dry_run_after_read_costs_zero_requests(with_sketch):
+    ctx, backend, ledger = with_sketch
+    cad_read(ctx, REF)
+    used = ledger.used
+    out = cad_extrude(ctx, REF, "Body", "Base", 7)
+    assert out["requests"] == 0 and ledger.used == used
+
+
+def test_extrude_apply_with_lost_cache_is_refused(with_sketch):
+    ctx, backend, _ = with_sketch
+    ctx.lose_track(REF, "re-read please")
+    ctx.last_read[REF] = "stale-mv"  # a version the cache no longer holds
+    ctx.cache.invalidate(REF)
+    out = cad_extrude(ctx, REF, "Body", "Base", 7, apply=True)
+    assert out["applied"] is False and "error" in out
+    assert backend.calls["add_feature"] == 1

@@ -84,7 +84,7 @@ def assert_matches_spec(built: dict, feature_type: str) -> None:
             assert p["enumName"] == sp["defaultValue"]["enumName"], pid
             assert p["value"] in sp["options"], f"{pid}: {p['value']!r} not in {sp['options']}"
         if emitted == "BTMParameterQuantity":
-            is_angle = p["expression"].strip().endswith(("deg", "rad"))
-            assert is_angle == (sp.get("quantityType") == "ANGLE"), pid
-            if sp.get("quantityType") == "LENGTH":
-                assert not is_angle, pid
+            expr = p["expression"].strip()
+            if not expr.startswith("#"):  # a variable's unit is not visible here
+                is_angle = expr.endswith(("deg", "rad"))
+                assert is_angle == (sp.get("quantityType") == "ANGLE"), pid

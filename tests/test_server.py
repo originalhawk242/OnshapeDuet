@@ -311,3 +311,17 @@ def test_apply_must_be_a_real_boolean(tmp_path, tool, args, apply):
         asyncio.run(mcp.call_tool(tool, {"url": url, **args, "apply": apply}))
     assert "apply" in repr(e.value) or "bool" in repr(e.value)
     assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("depth", [True, False])
+def test_extrude_depth_rejects_bool_at_mcp_layer(tmp_path, depth):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool("cad_extrude", {"url": url, "name": "B", "sketch": "S",
+                                                        "depth": depth}))
+    except Exception as e:  # validation error is acceptable
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0

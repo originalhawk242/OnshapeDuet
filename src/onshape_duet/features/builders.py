@@ -59,6 +59,6 @@ def build_extrude(fl: FeatureList, *, sketch: str, depth=None, operation: str = 
         params.append(p_bool("symmetric", True))
     if op != "new":  # merge with all bodies; the spec default (False) leaves booleanScope empty
         params.append(p_bool("defaultScope", True))
-    summary = {"sketch": sketch, "depth": values[0].expr if values else None,
+    summary = {"sketch": clean(sketch, 100), "depth": values[0].expr if values else None,
                "operation": op, "end": end}
     return Built(feature("extrude", "", params), values, summary)
