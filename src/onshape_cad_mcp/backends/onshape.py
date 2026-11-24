@@ -180,10 +180,14 @@ class OnshapeBackend:
     def _write(self, path: str, body: dict, expected_microversion: str) -> dict:
         """POST a write body and return the parsed reply.
 
-        Every write pins to the microversion Claude read and asks Onshape to
-        reject (not silently apply) a skewed one. After the request is sent the
-        outcome is uncertain, so transport errors, 5xx, unparsable replies and a
-        skew report raise PostWriteError / StaleVersion(may_have_landed=True).
+        Every write sends the microversion Claude read. Verified live: Onshape
+        does NOT reject a skewed write despite rejectMicroversionSkew; it applies
+        it and replies microversionSkew: true. The only real stale guard is the
+        client-side pre-POST check (tools._backstop), which must stay. After the
+        request is sent the outcome is uncertain, so transport errors, 5xx,
+        unparsable replies and a skew report raise PostWriteError /
+        StaleVersion(may_have_landed=True); a skew report means the write most
+        likely landed.
         """
         body = {**body, "sourceMicroversion": expected_microversion,
                 "rejectMicroversionSkew": True}
@@ -201,8 +205,8 @@ class OnshapeBackend:
             raise PostWriteError(f"unusable reply to a write ({e})") from e
         if data.get("microversionSkew") is True:
             raise StaleVersion(
-                "Onshape reports the write was applied against a newer version "
-                "(microversionSkew)",
+                "Onshape reported microversionSkew: the write was most likely "
+                "applied (Onshape does not reject skewed writes)",
                 may_have_landed=True)
         return data
 

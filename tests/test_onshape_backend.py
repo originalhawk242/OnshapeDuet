@@ -300,14 +300,14 @@ def test_set_variable_body_pins_and_rejects_skew(tmp_path):
 
 def test_add_feature_skew_reply_raises_loudly(tmp_path):
     b, _, _ = _post_capture(tmp_path, {**ADD_REPLY, "microversionSkew": True})
-    with pytest.raises(StaleVersion, match="newer version") as ei:
+    with pytest.raises(StaleVersion, match="most likely applied") as ei:
         b.add_feature(REF, {"type": "x"}, "mv1")
     assert ei.value.may_have_landed is True
 
 
 def test_set_variable_skew_reply_raises_loudly(tmp_path):
     b, _, _ = _post_capture(tmp_path, {"sourceMicroversion": "mv2", "microversionSkew": True})
-    with pytest.raises(StaleVersion, match="newer version") as ei:
+    with pytest.raises(StaleVersion, match="most likely applied") as ei:
         b.set_variable(REF, "w", "1 mm", "mv1")
     assert ei.value.may_have_landed is True
 

@@ -10,8 +10,9 @@ from ..model import FeatureList, Variable, WriteResult
 class StaleVersion(Exception):
     """The document changed since the caller last read it.
 
-    may_have_landed is True when Onshape reported that the write was applied
-    against a newer version (microversionSkew): the state is then unknown.
+    may_have_landed is True when Onshape reported microversionSkew. Onshape does
+    not actually reject such writes (verified live), so the write most likely
+    landed: the caller must re-read before doing anything else.
     """
 
     def __init__(self, message: str = "", may_have_landed: bool = False) -> None:
@@ -32,7 +33,9 @@ class Backend(Protocol):
     def get_variables(self, ref: DocRef) -> list[Variable]: ...
 
     def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
-        """Raises StaleVersion if expected_microversion is not current."""
+        """Raises StaleVersion(may_have_landed=True) if Onshape reports skew (the
+        write was most likely applied anyway). The stale guard itself is the
+        caller's pre-POST version check, not the server."""
         ...
 
     def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,

@@ -164,8 +164,10 @@ def _reply(ctx: Context, start_used, applied: bool | str, **extra) -> dict:
 
 
 def _backstop(ctx: Context, ref: DocRef, expected: str) -> None:
-    """Client-side check before every write (costs 1 request). Removable once
-    rejectMicroversionSkew is verified live (docs/live-checklist.md)."""
+    """Client-side check before every write (costs 1 request). This is the ONLY
+    stale-write guard: verified live, Onshape ignores rejectMicroversionSkew and
+    applies a skewed write. Must stay. A human edit between this GET and the POST
+    can still land; the backend then reports StaleVersion(may_have_landed=True)."""
     if ctx.backend.get_microversion(ref) != expected:
         raise StaleVersion("document version differs from the version last read")
 

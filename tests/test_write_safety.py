@@ -127,6 +127,7 @@ def test_skew_error_says_may_have_landed_once(tmp_path):
     out = cad_sketch(ctx, REF, "Rail", SPEC, apply=True)
     assert out["applied"] == "unknown"
     assert out["error"].count("may have landed") == 1
+    assert "most likely" in out["error"] and "cad_read" in out["error"]
 
 
 def test_creating_a_variable_then_writing_gives_an_accurate_message(tmp_path):

@@ -8,8 +8,10 @@ that shows the real one. The shapes are isolated in `backends/onshape.py`,
 
 ## Safety (do these first, in this order, on a throwaway document)
 
-Step order matters: step 1 proves Onshape itself rejects a skewed write; only then
-can the client-side backstop be judged. Record the request count of every step.
+RESULT (see "Live results"): Onshape does NOT reject a skewed write, so the
+client-side backstop is the only stale guard and is permanent. Step 1 below is
+already done; do not repeat it except to re-check Onshape's behavior (it WRITES a
+feature). Record the request count of every step.
 
 1. **Server-side rejection, with the client backstop bypassed.** The normal tools
    never reach this case: `_backstop` (tools.py) refuses a stale write BEFORE the POST,
@@ -36,10 +38,8 @@ can the client-side backstop be judged. Record the request count of every step.
    - `fl = backend.list_features(ref)` (note `fl.microversion`, call it M0);
    - edit the document in the Onshape UI (add or move any feature);
    - `backend.add_feature(ref, <small valid feature JSON>, expected_microversion=M0)`.
-   Expect `StaleVersion` (HTTP 409/412, or `microversionSkew: true` reported as
-   "applied against a newer version"), and in the UI that NOTHING was added. If the
-   feature appears, the pin does not hold: stop, keep the backstop, and fix the
-   `rejectMicroversionSkew` / `sourceMicroversion` handling in `_write`. Expected
+   Observed live: `StaleVersion(may_have_landed=True)` (`microversionSkew: true`)
+   AND the feature WAS added. The backstop therefore must stay. Expected
    requests: 2 (the `list_features` GET and the POST).
 2. **Normal stale refusal through the tools.** `cad_read`, edit in the UI, then call a
    write tool with `apply=True`. Expect a refusal ("stale ... re-read") with zero
