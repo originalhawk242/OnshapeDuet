@@ -25,5 +25,69 @@
     "sourceMicroversion": "8829152ac14960b05ef9d633",
     "notices": []
   },
-  "fs_eval_request_note": "queries must be a JSON object ({}), not a list: a list gives HTTP 400"
+  "fs_eval_request_note": "queries must be a JSON object ({}), not a list: a list gives HTTP 400",
+  "find_eval": {
+    "expr": "qCreatedBy(makeId(\"FYg6qkcmnXyyqI5_0\"), EntityType.EDGE)",
+    "result": {
+      "btType": "com.belmonttech.serialize.fsvalue.BTFSValueArray",
+      "typeTag": "",
+      "value": [
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "10"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(25.000000000000004, 0, 0)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(50.00000000000001, 0, 10.000000000000005)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(25.000000000000004, 0, 20)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(0, 0, 10)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(14.999999999999998, 0, 10)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(25.000000000000004, 0, 0)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(50, 0, 10)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(25.000000000000004, 0, 20)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(0, 0, 10)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(14.999999999999998, 0, 10)"
+        }
+      ]
+    }
+  }
 }
