@@ -348,7 +348,7 @@ def test_add_feature_followup_microversion_failure_is_post_write_error(tmp_path)
             return httpx.Response(200, json=reply)
         return httpx.Response(200, content=b"not json")
     b, _ = make(tmp_path, handler)
-    with pytest.raises(PostWriteError, match="landed"):
+    with pytest.raises(PostWriteError, match="reading the new version failed"):
         b.add_feature(REF, {"type": "x"}, "mv1")
 
 
@@ -356,7 +356,7 @@ def test_add_feature_followup_budget_failure_is_post_write_error(tmp_path):
     from onshape_cad_mcp.backends.base import PostWriteError
     reply = {k: v for k, v in ADD_REPLY.items() if k != "sourceMicroversion"}
     b, _ = make(tmp_path, lambda r: httpx.Response(200, json=reply), budget=1)
-    with pytest.raises(PostWriteError, match="landed"):
+    with pytest.raises(PostWriteError, match="reading the new version failed"):
         b.add_feature(REF, {"type": "x"}, "mv1")
 
 
@@ -370,7 +370,7 @@ def test_set_variable_followup_failure_is_post_write_error(tmp_path):
             return httpx.Response(200, json={})
         raise httpx.ConnectError("down")
     b, _ = make(tmp_path, handler)
-    with pytest.raises(PostWriteError, match="landed"):
+    with pytest.raises(PostWriteError, match="reading the new version failed"):
         b.set_variable(REF, "w", "1 mm", "mv1")
 
 

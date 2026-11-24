@@ -15,7 +15,24 @@ can the client-side backstop be judged. Record the request count of every step.
    never reach this case: `_backstop` (tools.py) refuses a stale write BEFORE the POST,
    so an "edit in the UI between cad_read and apply" test only exercises the backstop.
    To test Onshape's own `rejectMicroversionSkew`, call the backend directly from a
-   Python shell (budget >= 5):
+   Python shell (budget >= 5). Build it from your config; credentials come from the
+   environment variables, never from the snippet:
+
+   ```python
+   import os
+   from pathlib import Path
+   from onshape_cad_mcp.server import build_context, DEFAULT_CONFIG
+   from onshape_cad_mcp.docref import parse_url
+
+   path = Path(os.environ.get("ONSHAPE_CAD_MCP_CONFIG", DEFAULT_CONFIG)).expanduser()
+   ctx = build_context(path)          # makes no request
+   backend, ledger = ctx.backend, ctx.ledger
+   ref = parse_url("https://cad.onshape.com/documents/<did>/w/<wid>/e/<eid>",
+                   ctx.config.base_url)   # a THROWAWAY document
+   print(ledger.used, ledger.remaining)
+   ```
+
+   Then:
    - `fl = backend.list_features(ref)` (note `fl.microversion`, call it M0);
    - edit the document in the Onshape UI (add or move any feature);
    - `backend.add_feature(ref, <small valid feature JSON>, expected_microversion=M0)`.

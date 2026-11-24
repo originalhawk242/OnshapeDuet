@@ -221,7 +221,7 @@ class OnshapeBackend:
             return self.get_microversion(ref), False
         except (BudgetExceeded, RuntimeError, httpx.HTTPError) as e:
             raise PostWriteError(
-                f"the write succeeded but reading the new version failed ({e}); the write landed") from e
+                f"the write succeeded but reading the new version failed ({e})") from e
 
     def get_microversion(self, ref: DocRef) -> str:
         mv = self._ok(self._request("GET", microversion_path(ref))).get("microversionId")

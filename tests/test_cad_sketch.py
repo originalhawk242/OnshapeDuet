@@ -168,9 +168,9 @@ def test_numeric_dimension_has_clean_literal():
 
 
 def test_variable_change_needs_no_reserialization(env):
-    """A sketch dimension stores '#w', not its value: changing the variable afterwards
-    the dimension of the re-serialised sketch still carries the reference, never
-    the old or new number."""
+    """A sketch dimension stores the reference '#w', not the variable's value, so
+    changing the variable leaves the serialized dimension unchanged: both
+    serializations carry exactly '#w' and neither contains either value."""
     ctx, backend, _ = env
     sent = []
     real = backend.add_feature
@@ -188,8 +188,12 @@ def test_variable_change_needs_no_reserialization(env):
              "dimensions": spec["dimensions"]}
     assert cad_sketch(ctx, REF, "S", spec2, apply=True)["applied"] is True
     assert len(sent) == 2
+    import json
     assert _dim_expr(sent[0]) == _dim_expr(sent[1]) == "#w"
-    assert "50" not in _dim_expr(sent[0]) and "80" not in _dim_expr(sent[1])
+    for feat in sent:
+        dim = next(c for c in feat["constraints"] if c["constraintType"] == "LENGTH")
+        text = json.dumps(dim)
+        assert "50 mm" not in text and "80 mm" not in text and "0.05" not in text and "0.08" not in text
 
 
 @pytest.mark.parametrize("bad", ["#W", "#a-b", "#1x", "#a b", "#", "#a;b", "#_x"])

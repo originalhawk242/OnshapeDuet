@@ -141,3 +141,47 @@ def test_creating_a_variable_then_writing_gives_an_accurate_message(tmp_path):
     assert "stale" not in nxt["error"]
     ctx.read(REF)
     assert "variable" not in ctx.reread.get(REF, "")
+
+
+def _handler_for(kind):
+    posted = []
+
+    def handler(req):
+        if req.method == "POST":
+            posted.append(1)
+            if kind == "transport":
+                raise httpx.ConnectError("down")
+            if kind == "5xx":
+                return httpx.Response(502, text="bad gateway")
+            if kind == "garbage":
+                return httpx.Response(200, content=b"not json")
+            if kind == "no_feature_id":
+                return httpx.Response(200, json={"feature": {}})
+            if kind == "skew":
+                return httpx.Response(200, json={"microversionSkew": True})
+            if kind == "redirect":
+                return httpx.Response(307, headers={"Location": "/api/x"})
+            return httpx.Response(200, json=dict(FEATURE_REPLY))   # followup fails below
+        if req.url.path.endswith("currentmicroversion"):
+            return httpx.Response(500, text="boom") if (kind == "followup" and posted) else \
+                httpx.Response(200, json={"microversionId": "mv1"})
+        return httpx.Response(200, json={"sourceMicroversion": "mv1", "featureStates": {}, "features": []})
+    return handler
+
+
+@pytest.mark.parametrize("kind", ["transport", "5xx", "garbage", "no_feature_id", "skew",
+                                  "redirect", "followup"])
+@pytest.mark.parametrize("tool", ["sketch", "variable"])
+def test_every_unknown_outcome_says_may_have_landed_exactly_once(tmp_path, kind, tool):
+    if tool == "variable" and kind == "no_feature_id":
+        return  # not applicable: set_variable does not require a feature id in the reply
+    cfg = Config(budget=100, ledger_path=tmp_path / "l.json")
+    ledger = Ledger(cfg.ledger_path, 100)
+    backend = OnshapeBackend(cfg, ledger, httpx.MockTransport(_handler_for(kind)))
+    ctx = Context(backend, DocCache(backend), ledger, cfg)
+    ctx.read(REF)
+    out = (cad_sketch(ctx, REF, "Rail", SPEC, apply=True) if tool == "sketch"
+           else cad_variable(ctx, REF, "w", "5 mm", apply=True))
+    assert out["applied"] == "unknown", out
+    assert out["error"].count("may have landed") == 1, out["error"]
+    assert "landed" not in out["error"].replace("may have landed", "")
