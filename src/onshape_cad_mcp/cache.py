@@ -42,6 +42,10 @@ class DocCache:
         entry moves to new_microversion. Without one the resulting feature list
         is unknown, so the entry is dropped. No entry: nothing to do.
 
+        new_microversion MUST be the version the caller's own write returned
+        (and exact, i.e. named by the write reply, not fetched separately); the
+        cache does not check it and does not guard against going backwards.
+
         The splice is only sound if the cached entry is the version the write
         was pinned to: when expected_microversion is missing or differs from the
         entry's version, the entry is dropped instead.

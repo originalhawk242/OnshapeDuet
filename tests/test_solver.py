@@ -441,3 +441,37 @@ def test_ground_conflict_message_says_point_is_not_at_the_origin():
             "entities": [{"id": "p", "type": "point", "x": 5, "y": 5}],
             "constraints": [{"type": "ground", "refs": ["p"]}], "dimensions": []}
     assert any("point is not at the origin" in c for c in run(spec).conflicts)
+
+
+def test_every_row_jacobian_matches_finite_differences():
+    import numpy as np
+    from onshape_cad_mcp.sketch.solver import build_rows
+    spec = {"plane": "Front",
+            "entities": [{"id": "a", "type": "line", "start": [1, 2], "end": [7, 4]},
+                         {"id": "b", "type": "line", "start": [-3, 5], "end": [2, 11]},
+                         {"id": "c", "type": "circle", "center": [4, -2], "radius": 3},
+                         {"id": "d", "type": "circle", "center": [9, 9], "radius": 2},
+                         {"id": "p", "type": "point", "x": -2, "y": 3}],
+            "constraints": [{"type": "coincident", "refs": ["a.end", "p"]},
+                            {"type": "horizontal", "refs": ["a"]}, {"type": "vertical", "refs": ["b"]},
+                            {"type": "horizontal", "refs": ["a.start", "p"]},
+                            {"type": "parallel", "refs": ["a", "b"]},
+                            {"type": "perpendicular", "refs": ["a", "b"]},
+                            {"type": "equal", "refs": ["a", "b"]}, {"type": "equal", "refs": ["c", "d"]},
+                            {"type": "ground", "refs": ["p"]}],
+            "dimensions": [{"type": "length", "ref": "a", "value": 5},
+                           {"type": "diameter", "ref": "c", "value": 6},
+                           {"type": "distance_h", "refs": ["a.start", "c.center"], "value": 3},
+                           {"type": "distance_v", "refs": ["p", "d.center"], "value": 6},
+                           {"type": "distance_h", "refs": ["p"], "value": 2}]}
+    rows, lay = build_rows(parse_sketch_spec(spec, {}))
+    x = np.array(lay.x, dtype=float)
+    h = 1e-6
+    assert len(rows) > 15
+    for r in rows:
+        num = np.zeros_like(x)
+        for i in range(len(x)):
+            e = np.zeros_like(x)
+            e[i] = h
+            num[i] = (r.fn(x + e) - r.fn(x - e)) / (2 * h)
+        assert np.allclose(r.jac, num, atol=1e-4), r.label

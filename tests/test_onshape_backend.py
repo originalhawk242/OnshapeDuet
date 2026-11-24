@@ -460,3 +460,11 @@ def test_non_redirect_3xx_is_not_followed_on_get(tmp_path, status):
     with pytest.raises(RuntimeError):
         b.get_microversion(REF)
     assert ledger.used == 1  # no second hop
+
+
+@pytest.mark.parametrize("loc", ["/api/%2e%2e/secret", "/api/%2E%2E/x", "/api/a%2fb", "/api/a\\b",
+                                 "/api/../x", "/apix/y"])
+def test_redirect_path_tricks_refused(tmp_path, loc):
+    b, _ = make(tmp_path, lambda r: httpx.Response(302, headers={"Location": loc}))
+    with pytest.raises(RuntimeError, match="redirect"):
+        b.get_microversion(REF)

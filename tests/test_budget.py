@@ -112,3 +112,57 @@ def test_lock_failure_fails_closed(tmp_path, monkeypatch):
     with pytest.raises(BudgetExceeded) as e:
         Ledger(tmp_path / "ledger.json", limit=5).charge()
     assert "ledger unusable" in str(e.value)
+
+
+# --- wave 2 (T2) ---
+
+def test_failed_write_with_existing_ledger_keeps_old_file_and_removes_temp(tmp_path, monkeypatch):
+    import os
+    p = tmp_path / "ledger.json"
+    led = Ledger(p, limit=10)
+    led.charge(2)
+    before = p.read_text()
+
+    def boom(src, dst):
+        raise OSError("disk full")
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(BudgetExceeded):
+        led.charge()
+    monkeypatch.undo()
+    assert p.read_text() == before and led.used == 2
+    assert [f.name for f in tmp_path.iterdir() if f.name.startswith(".ledger-")] == []
+
+
+def test_fdopen_failure_closes_the_descriptor(tmp_path, monkeypatch):
+    import os
+    closed = []
+    real_close = os.close
+
+    def bad_fdopen(fd, *a, **k):
+        raise OSError("no fdopen")
+    monkeypatch.setattr(os, "fdopen", bad_fdopen)
+    monkeypatch.setattr(os, "close", lambda fd: (closed.append(fd), real_close(fd))[1])
+    led = Ledger(tmp_path / "l.json", limit=10)
+    with pytest.raises(BudgetExceeded):
+        led.charge()
+    assert len(closed) == 1
+    assert [f.name for f in tmp_path.iterdir() if f.name.startswith(".ledger-")] == []
+
+
+def test_successful_write_fsyncs_the_directory(tmp_path, monkeypatch):
+    import os
+    synced = []
+    real = os.fsync
+    monkeypatch.setattr(os, "fsync", lambda fd: (synced.append(os.fstat(fd).st_mode), real(fd))[1])
+    Ledger(tmp_path / "l.json", limit=3).charge()
+    import stat
+    assert any(stat.S_ISDIR(m) for m in synced)
+
+
+def test_missing_fcntl_fails_closed_at_use_not_at_import(tmp_path, monkeypatch):
+    import onshape_cad_mcp.budget as budget
+    monkeypatch.setattr(budget, "fcntl", None)
+    led = Ledger(tmp_path / "l.json", limit=3)
+    with pytest.raises(BudgetExceeded, match="POSIX"):
+        led.charge()
+    assert led.used == 0  # reading still works; nothing was charged

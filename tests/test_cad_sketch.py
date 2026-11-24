@@ -39,13 +39,22 @@ def env(tmp_path):
     return ctx, backend, ledger
 
 
+def _clean_spec():
+    """SPEC without repeated literals, so a good sketch has no findings at all."""
+    import copy
+    spec = copy.deepcopy(SPEC)
+    spec["entities"][1]["center"] = [15, 10]
+    spec["dimensions"][3]["value"] = 15
+    return spec
+
+
 def test_dry_run_sends_no_write(env):
     ctx, backend, _ = env
-    out = cad_sketch(ctx, REF, "S1", SPEC)
+    out = cad_sketch(ctx, REF, "Base plate", _clean_spec())
     assert out["applied"] is False
     assert backend.calls["add_feature"] == 0
-    assert isinstance(out["dof"], int)
-    assert all(f["level"] == "warn" for f in out["findings"])  # SPEC repeats a literal
+    assert out["dof"] == 0
+    assert out["findings"] == []
 
 
 def test_apply_adds_feature_with_given_name(env):
@@ -159,7 +168,14 @@ def test_numeric_dimension_has_clean_literal():
 
 
 def test_variable_change_needs_no_reserialization(env):
+    """A sketch dimension stores '#w', not its value: changing the variable afterwards
+    the dimension of the re-serialised sketch still carries the reference, never
+    the old or new number."""
     ctx, backend, _ = env
+    sent = []
+    real = backend.add_feature
+    backend.add_feature = lambda ref, fj, expected_microversion: (
+        sent.append(fj), real(ref, fj, expected_microversion))[1]
     backend._doc(REF).variables["w"] = "50 mm"
     ctx.read(REF)
     spec = {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [50, 0]}],
@@ -167,7 +183,23 @@ def test_variable_change_needs_no_reserialization(env):
     assert cad_sketch(ctx, REF, "S", spec, apply=True)["applied"] is True
     mv = ctx.read(REF).microversion
     backend.set_variable(REF, "w", "80 mm", mv)
-    assert _dim_expr(to_feature_json(_w_sketch("#w"), "S")) == "#w"
+    ctx.read(REF)
+    spec2 = {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [80, 0]}],
+             "dimensions": spec["dimensions"]}
+    assert cad_sketch(ctx, REF, "S", spec2, apply=True)["applied"] is True
+    assert len(sent) == 2
+    assert _dim_expr(sent[0]) == _dim_expr(sent[1]) == "#w"
+    assert "50" not in _dim_expr(sent[0]) and "80" not in _dim_expr(sent[1])
+
+
+@pytest.mark.parametrize("bad", ["#W", "#a-b", "#1x", "#a b", "#", "#a;b", "#_x"])
+def test_hash_reference_with_invalid_name_is_rejected_before_serialising(env, bad):
+    ctx, backend, _ = env
+    spec = {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [50, 0]}],
+            "dimensions": [{"type": "length", "ref": "l", "value": bad}]}
+    out = cad_sketch(ctx, REF, "S", spec)
+    assert out["applied"] is False and "error" in out
+    assert backend.calls["add_feature"] == 0
 
 
 def test_fake_sketch_recognised_by_outline(env):
@@ -322,4 +354,37 @@ def test_s1_sketch_human_edit_after_read_refused_before_any_write(env):
     backend.simulate_human_edit(REF)
     out = cad_sketch(ctx, REF, "S", SPEC, apply=True)
     assert out["applied"] is False and "stale" in out["error"]
+    assert backend.calls["add_feature"] == 0
+
+
+# --- wave 2 (T10): last_read and request accounting on refusal/failure paths ---
+
+def test_last_read_unchanged_after_a_stale_refusal(env):
+    ctx, backend, _ = env
+    mv = ctx.read(REF).microversion
+    backend.simulate_human_edit(REF)
+    out = cad_sketch(ctx, REF, "S1", SPEC, apply=True)
+    assert out["applied"] is False and "stale" in out["error"]
+    assert ctx.last_read[REF] == mv
+    assert cad_sketch(ctx, REF, "S1", SPEC, apply=True)["applied"] is False  # still stale
+
+
+def test_requests_and_budget_left_on_stale_and_budget_failure_paths(env):
+    ctx, backend, ledger = env
+    ctx.read(REF)
+    backend.simulate_human_edit(REF)
+    before = ledger.used
+    out = cad_sketch(ctx, REF, "S1", SPEC, apply=True)
+    assert out["requests"] == ledger.used - before == 1   # only the backstop check was spent
+    assert out["budget_left"] == ledger.remaining
+
+
+def test_budget_exhausted_mid_apply_reports_numbers(tmp_path):
+    ledger = Ledger(tmp_path / "l.json", 2)
+    backend = FakeBackend(ledger)
+    ctx = Context(backend, DocCache(backend), ledger, Config(budget=2))
+    ctx.read(REF)                                          # uses the whole budget (2)
+    out = cad_sketch(ctx, REF, "S1", SPEC, apply=True)
+    assert out["applied"] is False and "budget" in out["error"]
+    assert out["requests"] == 0 and out["budget_left"] == 0
     assert backend.calls["add_feature"] == 0

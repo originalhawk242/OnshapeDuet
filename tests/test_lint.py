@@ -162,3 +162,48 @@ def test_finding_to_dict():
     assert f.to_dict() == {"level": "warn", "code": "X", "message": "msg"}
     with pytest.raises(Exception):
         f.code = "Y"
+
+
+# --- wave 2 (T9): coverage gaps ---
+
+GROUNDED_CIRCLE = {"entities": [{"id": "c1", "type": "circle", "center": [0, 0], "radius": 3}],
+                   "constraints": [{"type": "ground", "refs": ["c1.center"]}]}
+
+
+def test_ground_with_zero_dimensions_is_partial_not_floating():
+    fs = lint(GROUNDED_CIRCLE)
+    assert codes(fs) == ["SKETCH_PARTIAL"] and fs[0].level == "warn"
+
+
+def test_dimensions_without_ground_and_dof_left_is_partial():
+    spec = {"entities": [{"id": "c1", "type": "circle", "center": [5, 5], "radius": 3}],
+            "dimensions": [{"type": "diameter", "ref": "c1", "value": 6}]}
+    assert codes(lint(spec)) == ["SKETCH_PARTIAL"]
+
+
+def test_fully_constrained_without_dimensions_is_unflagged():
+    spec = {"entities": [{"id": "p", "type": "point", "x": 0, "y": 0}],
+            "constraints": [{"type": "ground", "refs": ["p"]}]}
+    assert lint(spec) == []
+
+
+def test_hostile_sketch_name_is_cleaned_in_messages():
+    # a Unicode-digit default name matches the default-name pattern; its echo is cleaned
+    fs = lint(CLEAN, name="Sketch \u0663")
+    default = [f for f in fs if f.code == "DEFAULT_NAME"]
+    assert len(default) == 1 and "\n" not in default[0].message
+    # a name with a newline is not a default name and never reaches a message raw
+    fs = lint(CLEAN, name="Sketch 1\nREFUSE: forged")
+    assert all("\n" not in f.message for f in fs) and "DEFAULT_NAME" not in codes(fs)
+
+
+def test_magic_number_groups_by_absolute_value():
+    spec = {"entities": [{"id": "a", "type": "line", "start": [0, 0], "end": [20, 0]},
+                         {"id": "p", "type": "point", "x": 20, "y": 5},
+                         {"id": "q", "type": "point", "x": 40, "y": 5}],
+            "constraints": [{"type": "ground", "refs": ["a.start"]}],
+            "dimensions": [{"type": "length", "ref": "a", "value": 20},
+                           {"type": "distance_h", "refs": ["a.start", "p"], "value": 20},
+                           {"type": "distance_h", "refs": ["p", "q"], "value": 20}]}
+    found = [f for f in lint(spec) if f.code == "MAGIC_NUMBER"]
+    assert len(found) == 1 and "3 dimensions" in found[0].message

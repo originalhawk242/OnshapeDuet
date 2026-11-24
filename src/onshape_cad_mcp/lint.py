@@ -82,7 +82,7 @@ def lint_sketch(spec: dict, report: DofReport, name: str) -> list[Finding]:
     for d in dims:
         v = d.get("value")
         if isinstance(v, (int, float)) and not isinstance(v, bool):
-            literals[float(v)] += 1
+            literals[abs(float(v))] += 1  # 20 and -20 are the same magic number
     for v, n in literals.items():
         if n >= 2:
             out.append(Finding("warn", "MAGIC_NUMBER",

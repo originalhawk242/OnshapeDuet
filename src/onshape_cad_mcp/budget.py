@@ -1,11 +1,15 @@
 """Persistent request budget ledger. Fails closed on any file problem."""
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import tempfile
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # non-POSIX: importing must work; charging then fails closed
+    fcntl = None  # type: ignore[assignment]
 
 
 def _unusable(path, why) -> str:
@@ -42,11 +46,17 @@ class Ledger:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=".ledger-")
-            with os.fdopen(fd, "w") as f:
+            try:
+                f = os.fdopen(fd, "w")
+            except BaseException:
+                os.close(fd)  # fdopen failed: the descriptor would otherwise leak
+                raise
+            with f:
                 json.dump({"used": used}, f)
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp, self.path)
+            self._fsync_dir()
         except OSError as e:
             if tmp is not None:
                 try:
@@ -54,6 +64,19 @@ class Ledger:
                 except OSError:
                     pass
             raise BudgetExceeded(_unusable(self.path, e)) from e
+
+    def _fsync_dir(self) -> None:
+        """Make the rename durable (best effort: not every platform can fsync a directory)."""
+        try:
+            dfd = os.open(self.path.parent, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(dfd)
+        except OSError:
+            pass
+        finally:
+            os.close(dfd)
 
     @property
     def used(self) -> int:
@@ -66,6 +89,10 @@ class Ledger:
     def charge(self, n: int = 1, reason: str = "") -> None:
         if type(n) is not int or n < 1:
             raise ValueError(f"charge n must be a positive int, got {n!r}")
+        if fcntl is None:
+            raise BudgetExceeded(
+                "ledger unusable: the request ledger needs POSIX file locking (fcntl), "
+                "which this platform lacks; no request will be sent")
         lock_path = self.path.with_name(self.path.name + ".lock")
         try:
             lock_path.parent.mkdir(parents=True, exist_ok=True)

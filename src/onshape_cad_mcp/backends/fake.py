@@ -32,7 +32,7 @@ class _Variables(MutableMapping):
     def __setitem__(self, name: str, expression: str) -> None:
         feats = self._doc.features
         existing = find_variable(self._fl(), name)
-        new = make_variable_feature(existing.id if existing else f"F{len(feats) + 1}", name, expression)
+        new = make_variable_feature(existing.id if existing else self._doc.new_id(), name, expression)
         if existing is None:
             feats.append(new)
         else:
@@ -56,6 +56,12 @@ class _Doc:
         self.version = 0
         self.features: list[Feature] = []
         self.variables = _Variables(self)
+        self._counter = 0
+
+    def new_id(self) -> str:
+        """A feature id that never repeats, even after features are deleted."""
+        self._counter += 1
+        return f"F{self._counter}"
 
 
 class FakeBackend:
@@ -89,7 +95,7 @@ class FakeBackend:
     def list_features(self, ref: DocRef) -> FeatureList:
         self._enter("list_features")
         d = self._doc(ref)
-        return FeatureList(self._mv(d), list(d.features))
+        return FeatureList(self._mv(d), copy.deepcopy(d.features))
 
     def get_variables(self, ref: DocRef) -> list[Variable]:
         self._enter("get_variables")
@@ -100,15 +106,15 @@ class FakeBackend:
         d = self._doc(ref)
         self._check(d, expected_microversion)
         feat = Feature(
-            id=f"F{len(d.features) + 1}",
+            id=d.new_id(),
             type=feature_json.get("type") or feature_json.get("featureType") or feature_json.get("btType") or "",
             name=feature_json.get("name", ""),
             status=feature_json.get("status", "OK"),
-            params=dict(feature_json.get("params", {})),
+            params=copy.deepcopy(feature_json.get("params", {})),
         )
         d.features.append(feat)
         d.version += 1
-        return WriteResult(feat, self._mv(d))
+        return WriteResult(copy.deepcopy(feat), self._mv(d))
 
     def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,
                      feature_id: str | None = None) -> WriteResult:

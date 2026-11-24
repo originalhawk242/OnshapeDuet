@@ -41,7 +41,7 @@ def build_server(ctx: Context) -> MCPServer:
         Required before any apply=True write (a write is refused if the document
         changed after your last read). Existing sketches show `not assessed`."""
         try:
-            ref = parse_url(url)
+            ref = parse_url(url, ctx.config.base_url)
         except ValueError as e:
             return f"error: {e}"
         return cad_read(ctx, ref)
@@ -54,7 +54,7 @@ def build_server(ctx: Context) -> MCPServer:
         The lint REFUSES (writes nothing) on conflicts/contradictions in the
         sketch; WARN findings are advice only."""
         try:
-            ref = parse_url(url)
+            ref = parse_url(url, ctx.config.base_url)
         except ValueError as e:
             return {"applied": False, "error": str(e)}
         return cad_sketch(ctx, ref, name, spec, apply)
@@ -65,7 +65,7 @@ def build_server(ctx: Context) -> MCPServer:
         expression e.g. "10 mm"). DRY RUN IS THE DEFAULT: nothing is written unless
         apply=True. Read the document (cad_read) before apply; stale writes are refused."""
         try:
-            ref = parse_url(url)
+            ref = parse_url(url, ctx.config.base_url)
         except ValueError as e:
             return {"applied": False, "error": str(e)}
         return cad_variable(ctx, ref, name, expression, apply)

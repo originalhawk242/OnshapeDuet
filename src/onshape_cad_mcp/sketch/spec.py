@@ -37,6 +37,7 @@ DIMENSION_TYPES = {"length", "diameter", "distance_h", "distance_v"}
 POINT_PARTS = {"start", "end", "center"}
 PLANE_NAMES = ("Front", "Top", "Right")
 _ENTITY_ID = re.compile(r"[A-Za-z0-9_]+")
+_VAR_NAME = re.compile(r"[a-z][a-z0-9_]*")  # same rule as cad_variable
 
 
 @dataclass
@@ -258,6 +259,11 @@ def parse_sketch_spec(spec: dict, variables: dict[str, float]) -> Sketch:
             if name is None:
                 raise SketchSpecError(
                     f"dimension #{j + 1}: string value {val!r} must be a '#variable' reference")
+            if not _VAR_NAME.fullmatch(name):
+                # the name is emitted verbatim into an Onshape expression ("#name")
+                raise SketchSpecError(
+                    f"dimension #{j + 1}: invalid variable name {name!r} in {val!r} "
+                    "(must match ^[a-z][a-z0-9_]*$)")
             if name not in variables:
                 raise SketchSpecError(f"dimension #{j + 1}: undefined variable {name!r}")
             val = variables[name]

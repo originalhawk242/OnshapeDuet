@@ -70,7 +70,7 @@ def test_returned_value_cannot_corrupt_cache():
     b = FakeBackend()
     c = DocCache(b)
     mv = c.read(REF).microversion
-    res = b.add_feature(REF, FEAT, mv)
+    b.add_feature(REF, FEAT, mv)
     c.invalidate(REF)
     fl = c.read(REF)
     fl.features.clear()
@@ -85,9 +85,9 @@ def test_ledger_charges_two_then_one(tmp_path):
     b = FakeBackend(ledger=led)
     c = DocCache(b)
     c.read(REF)
-    assert led._read() == 2
+    assert led.used == 2
     c.read(REF)
-    assert led._read() == 3
+    assert led.used == 3
 
 
 def test_note_write_with_mismatched_expected_version_drops_entry():
@@ -106,3 +106,20 @@ def test_note_write_without_expected_version_drops_entry():
     res = b.add_feature(REF, FEAT, mv)
     c.note_write(REF, res.microversion, res.feature)
     assert c.peek(REF) is None
+
+
+def test_note_write_replaces_the_feature_with_the_same_id_and_keeps_order():
+    from onshape_cad_mcp.model import Feature
+    b = FakeBackend()
+    c = DocCache(b)
+    mv = c.read(REF).microversion
+    r1 = b.add_feature(REF, FEAT, mv)
+    r2 = b.add_feature(REF, {**FEAT, "name": "S2"}, r1.microversion)
+    c.invalidate(REF)
+    c.read(REF)
+    replacement = Feature(r1.feature.id, "sketch", "S1-renamed", "OK", {"a": 2})
+    c.note_write(REF, "mv-next", replacement, expected_microversion=r2.microversion)
+    fl = c.peek(REF)
+    assert fl.microversion == "mv-next"
+    assert [f.name for f in fl.features] == ["S1-renamed", "S2"]   # replaced in place, not appended
+    assert fl.features[0].params == {"a": 2}

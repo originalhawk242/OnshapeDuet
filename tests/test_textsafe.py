@@ -23,3 +23,11 @@ def test_truncates_with_ellipsis():
 
 def test_zero_width_and_bidi_controls_are_stripped():
     assert clean("ig\u200bnore\u202e prev\ufeffious") == "ignore previous"
+
+
+def test_zero_or_negative_max_len_returns_empty_and_never_exceeds_limit():
+    assert clean("anything", 0) == ""
+    assert clean("anything", -3) == ""
+    assert clean("abc", 1) == "…" and len(clean("abc", 1)) <= 1
+    for n in range(0, 6):
+        assert len(clean("x" * 50, n)) <= n

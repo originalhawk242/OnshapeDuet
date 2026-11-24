@@ -232,3 +232,24 @@ def test_expression_referencing_missing_variable_warns_but_is_not_refused(env):
     done = cad_variable(ctx, REF, "h", "#w * 2 + #nope", apply=True)
     assert done["applied"] is True
     assert cad_variable(ctx, REF, "k", "#w")["findings"] == []
+
+
+def test_last_read_unchanged_and_requests_reported_after_stale_refusal(env):
+    ctx, backend, ledger = env
+    mv = ctx.read(REF).microversion
+    backend.simulate_human_edit(REF)
+    before = ledger.used
+    out = cad_variable(ctx, REF, "w", "5 mm", apply=True)
+    assert out["applied"] is False and "stale" in out["error"]
+    assert ctx.last_read[REF] == mv
+    assert out["requests"] == ledger.used - before == 1
+    assert out["budget_left"] == ledger.remaining
+
+
+def test_apply_reports_requests_and_budget_left(env):
+    ctx, backend, ledger = env
+    ctx.read(REF)
+    before = ledger.used
+    out = cad_variable(ctx, REF, "w", "5 mm", apply=True)
+    assert out["applied"] is True and out["requests"] == ledger.used - before == 2
+    assert out["budget_left"] == ledger.remaining

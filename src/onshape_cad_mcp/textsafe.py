@@ -11,7 +11,9 @@ _INVISIBLE = re.compile("[\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\
 
 
 def clean(s: object, max_len: int = 80) -> str:
+    if max_len <= 0:
+        return ""
     out = _RUN.sub(" ", _INVISIBLE.sub("", str(s))).strip()
     if len(out) > max_len:
-        out = out[: max(max_len - 1, 0)] + "…"
+        out = out[: max_len - 1] + "…"
     return out
