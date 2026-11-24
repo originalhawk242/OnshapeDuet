@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 from .backends.base import PostWriteError, StaleVersion
 from .docref import DocRef
-from .features.builders import Built, build_extrude
+from .features.builders import Built, build_extrude, build_plane
 from .features.find import find_script, parse_find_result
 from .features.params import FeatureSpecError
 from .features.refs import compile_selector, selector_entity
@@ -92,3 +92,11 @@ def cad_extrude(ctx: Context, ref: DocRef, name: str, sketch: str, depth=None,
         lambda fl: build_extrude(fl, sketch=sketch, depth=depth, operation=operation,
                                  end=end, flip=flip),
         apply, "the extrude")
+
+
+def cad_plane(ctx: Context, ref: DocRef, name: str, base, offset, flip: bool = False,
+              apply: bool = False) -> dict:
+    return run_feature(
+        ctx, ref, name,
+        lambda fl: build_plane(fl, base=base, offset=offset, flip=flip),
+        apply, "the plane")

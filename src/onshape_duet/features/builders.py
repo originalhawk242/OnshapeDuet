@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from onshape_duet.features.params import (FeatureSpecError, Value, feature, length, p_bool,
                                           p_enum, p_qty, p_query)
-from onshape_duet.features.refs import resolve
+from onshape_duet.features.refs import PlaneRef, plane_param, resolve
 from onshape_duet.model import FeatureList
 from onshape_duet.textsafe import clean
 
@@ -62,3 +62,26 @@ def build_extrude(fl: FeatureList, *, sketch: str, depth=None, operation: str = 
     summary = {"sketch": clean(sketch, 100), "depth": values[0].expr if values else None,
                "operation": op, "end": end}
     return Built(feature("extrude", "", params), values, summary)
+
+
+def _clean_deep(x):
+    if isinstance(x, str):
+        return clean(x, 100)
+    if isinstance(x, dict):
+        return {clean(k, 100) if isinstance(k, str) else k: _clean_deep(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_clean_deep(v) for v in x]
+    return x
+
+
+def build_plane(fl: FeatureList, *, base: PlaneRef, offset, flip: bool = False) -> Built:
+    if not isinstance(flip, bool):
+        raise FeatureSpecError("flip: must be true or false")
+    entities = plane_param("entities", base, fl)
+    off = length(offset, "offset")
+    params = [entities,
+              p_enum("cplaneType", "CPlaneType", "OFFSET"),
+              p_qty("offset", off),
+              p_bool("oppositeDirection", flip)]
+    summary = {"base": _clean_deep(base), "offset": off.expr, "flip": flip}
+    return Built(feature("cPlane", "", params), [off], summary)

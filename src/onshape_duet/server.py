@@ -13,7 +13,7 @@ from .budget import Ledger
 from .cache import DocCache
 from .config import load_config
 from .docref import parse_url
-from .feature_tools import cad_extrude, cad_find
+from .feature_tools import cad_extrude, cad_find, cad_plane
 from .tools import Context, cad_read, cad_sketch, cad_status, cad_variable
 
 DEFAULT_CONFIG = Path.home() / ".onshape-duet" / "config.toml"
@@ -105,6 +105,25 @@ def build_server(ctx: Context) -> MCPServer:
         except ValueError as e:
             return {"applied": False, "error": str(e)}
         return cad_extrude(ctx, ref, name, sketch, depth, operation, end, flip, apply)
+
+    @mcp.tool(name="cad_plane")
+    def cad_plane_tool(url: str, name: str, base: str | dict,
+                       offset: StrictFloat | StrictInt | StrictStr, flip: StrictBool = False,
+                       apply: StrictBool = False) -> dict:
+        """Create an offset construction plane. base: Front|Top|Right, {"plane": <name of
+        an existing cPlane feature>}, or a planar face selector (geometry "plane" or a cap,
+        e.g. {"entity": "face", "created_by": "Body", "cap": "end"}). offset: mm number,
+        '10 mm'/'2 in', or '#variable'. flip offsets to the other side. Sketches can then
+        sit on it via cad_sketch spec plane {"plane": <name>}. DRY RUN IS THE DEFAULT:
+        nothing is written unless apply=True. Show the dry-run result to the owner, then
+        apply, and read afterwards. Read the document (cad_read) before apply; a stale
+        write is refused. Costs: a dry run is free once the document was read; apply costs
+        2 requests (version check + write), or 3 when the write reply names no new version."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_plane(ctx, ref, name, base, offset, flip, apply)
 
     return mcp
 

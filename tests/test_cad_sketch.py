@@ -400,3 +400,82 @@ def test_diameter_dimension_carries_label_placement():
     dia = next(c for c in feat["constraints"] if c["constraintType"] == "DIAMETER")
     ids = {p["parameterId"] for p in dia["parameters"]}
     assert {"localFirst", "length", "labelRatio", "labelAngle"} <= ids
+
+
+# ---- sketches on plane features and planar faces ----
+from onshape_duet.feature_tools import cad_extrude, cad_plane  # noqa: E402
+
+
+def _plane_env(env):
+    ctx, backend, ledger = env
+    ctx.read(REF)
+    assert cad_plane(ctx, REF, "Mid", "Top", 10, apply=True)["applied"] is True
+    return env
+
+
+def test_sketch_on_plane_feature(env):
+    ctx, backend, ledger = _plane_env(env)
+    spec = {**SPEC, "plane": {"plane": "Mid"}}
+    out = cad_sketch(ctx, REF, "S", spec, apply=True)
+    assert out["applied"] is True, out
+    fl, _ = ctx.snapshot(REF)
+    s = next(f for f in fl.features if f.name == "S")
+    assert s.type == "newSketch"
+
+
+def test_sketch_plane_param_in_json(env):
+    ctx, backend, ledger = _plane_env(env)
+    fl, _ = ctx.snapshot(REF)
+    mid = next(f for f in fl.features if f.name == "Mid")
+    from onshape_duet.features.refs import plane_param
+    sk = parse_sketch_spec({**SPEC, "plane": {"plane": "Mid"}}, {})
+    fj = to_feature_json(sk, "S", plane_param=plane_param("sketchPlane", sk.plane, fl))
+    p = fj["parameters"][0]
+    assert p["parameterId"] == "sketchPlane"
+    assert mid.id in p["queries"][0]["queryString"]
+
+
+def test_sketch_on_face_selector(env):
+    ctx, backend, ledger = env
+    ctx.read(REF)
+    assert cad_sketch(ctx, REF, "Base", SPEC, apply=True)["applied"] is True
+    assert cad_extrude(ctx, REF, "Body", "Base", 5, apply=True)["applied"] is True
+    face = {"entity": "face", "created_by": "Body", "cap": "end"}
+    out = cad_sketch(ctx, REF, "Top sk", {**SPEC, "plane": face})
+    assert "error" not in out, out
+    assert out["applied"] is False
+    out = cad_sketch(ctx, REF, "Top sk", {**SPEC, "plane": face}, apply=True)
+    assert out["applied"] is True, out
+
+
+def test_sketch_on_nonplanar_selector_refused(env):
+    ctx, backend, ledger = env
+    ctx.read(REF)
+    cad_sketch(ctx, REF, "Base", SPEC, apply=True)
+    cad_extrude(ctx, REF, "Body", "Base", 5, apply=True)
+    face = {"entity": "face", "created_by": "Body", "geometry": "cylinder"}
+    out = cad_sketch(ctx, REF, "S2", {**SPEC, "plane": face}, apply=True)
+    assert out["applied"] is False
+    assert "planar" in out["error"]
+
+
+def test_sketch_unknown_plane_feature_is_error(env):
+    ctx, backend, ledger = env
+    ctx.read(REF)
+    out = cad_sketch(ctx, REF, "S", {**SPEC, "plane": {"plane": "Nope"}})
+    assert out["applied"] is False and "Nope" in out["error"]
+
+
+def test_sketch_standard_plane_still_zero_requests(env):
+    ctx, backend, ledger = env
+    before = ledger.used
+    out = cad_sketch(ctx, REF, "S", SPEC)
+    assert out["applied"] is False and "error" not in out
+    assert ledger.used - before == 0
+
+
+def test_parse_dict_plane_unchanged():
+    sk = parse_sketch_spec({"plane": {"plane": "Mid"}, "entities": []}, {})
+    assert sk.plane == {"plane": "Mid"}
+    with pytest.raises(SketchSpecError):
+        parse_sketch_spec({"plane": "Bogus", "entities": []}, {})

@@ -21,6 +21,8 @@ from .budget import BudgetExceeded, Ledger
 from .cache import DocCache
 from .config import Config
 from .docref import DocRef
+from .features.params import FeatureSpecError
+from .features.refs import plane_param
 from .lint import Finding, lint_sketch
 from .model import Feature, FeatureList
 from .outline import render_outline
@@ -219,16 +221,21 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
     try:
         wanted = referenced_variables(spec)
         variables: dict[str, float] = {}
-        if wanted:  # no '#variable' reference: the document is not consulted at all
+        plane_ref = spec.get("plane") if isinstance(spec, dict) else None
+        fl = None
+        if wanted or isinstance(plane_ref, dict):  # else the document is not consulted at all
             fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
             based_on = {"based_on_version": clean(based, 64)}
-            variables = evaluate_variables(variables_from_features(fl), only=wanted)
+            if wanted:
+                variables = evaluate_variables(variables_from_features(fl), only=wanted)
         sketch = parse_sketch_spec(spec, variables)
         report = analyze(sketch)
-        feature_json = to_feature_json(sketch, name)
+        plane = (plane_param("sketchPlane", sketch.plane, fl)
+                 if isinstance(sketch.plane, dict) else None)
+        feature_json = to_feature_json(sketch, name, plane_param=plane)
     except StaleVersion:
         return _reply(ctx, start, False, error=_refusal(ctx, ref))
-    except (SketchSpecError, *_FAILURES) as e:
+    except (SketchSpecError, FeatureSpecError, *_FAILURES) as e:
         return _reply(ctx, start, False, error=clean(e, 300))
 
     findings = lint_sketch(spec, report, name)

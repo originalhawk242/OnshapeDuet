@@ -325,3 +325,18 @@ def test_extrude_depth_rejects_bool_at_mcp_layer(tmp_path, depth):
         res = e
     assert "applied" not in repr(res) or "error" in repr(res)
     assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("offset", [True, False])
+def test_plane_offset_rejects_bool_at_mcp_layer(tmp_path, offset):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    assert "cad_plane" in {t.name for t in asyncio.run(mcp.list_tools())}
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool("cad_plane", {"url": url, "name": "P", "base": "Top",
+                                                      "offset": offset}))
+    except Exception as e:
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0
