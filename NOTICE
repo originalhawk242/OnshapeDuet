@@ -1,0 +1,7 @@
+onshape-cad-mcp third-party notices.
+
+Sketch constraint and dimension JSON shapes in src/onshape_cad_mcp/sketch/serialize.py
+(BTMSketchConstraint-2 parameter layouts, DISTANCE/LENGTH/DIAMETER dimension shapes,
+origin vertex id and default plane ids) were ported from cadkit
+(https://github.com/saltyeg/cadkit-mcp, cadkit_mcp/sketch.py), MIT License.
+The code itself is original; only the JSON shapes derive from cadkit.
