@@ -299,3 +299,100 @@ def test_analytic_jacobian_matches_finite_differences():
             xm[k] -= h
             num[k] = (r.fn(xp) - r.fn(xm)) / (2 * h)
         assert np.allclose(r.jac, num, atol=1e-5), (r.label, r.jac, num)
+
+
+# --- final-review fixes: I4 numeric problems ---
+
+def _sk(entities, constraints=(), dimensions=()):
+    from onshape_cad_mcp.sketch.spec import parse_sketch_spec
+    return parse_sketch_spec({"entities": entities, "constraints": list(constraints),
+                              "dimensions": list(dimensions)}, {})
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_numbers_rejected(bad):
+    with pytest.raises(SketchSpecError, match="finite"):
+        _sk([{"id": "p", "type": "point", "x": bad, "y": 0}])
+
+
+def test_non_finite_variable_rejected():
+    from onshape_cad_mcp.model import Variable
+    from onshape_cad_mcp.sketch.spec import evaluate_variables
+    with pytest.raises(SketchSpecError, match="finite"):
+        evaluate_variables([Variable("w", "1e999 mm")])
+
+
+@pytest.mark.parametrize("radius", [0, -1])
+def test_circle_radius_must_be_positive(radius):
+    with pytest.raises(SketchSpecError, match="radius"):
+        _sk([{"id": "c", "type": "circle", "center": [0, 0], "radius": radius}])
+
+
+@pytest.mark.parametrize("dim", ["length", "diameter"])
+@pytest.mark.parametrize("value", [0, -3])
+def test_length_and_diameter_must_be_positive(dim, value):
+    ents = [{"id": "l", "type": "line", "start": [0, 0], "end": [5, 0]},
+            {"id": "c", "type": "circle", "center": [0, 0], "radius": 2}]
+    with pytest.raises(SketchSpecError, match="positive|> 0"):
+        _sk(ents, dimensions=[{"type": dim, "ref": "l" if dim == "length" else "c", "value": value}])
+
+
+def test_negative_distance_value_rejected():
+    with pytest.raises(SketchSpecError, match="unsigned"):
+        _sk([{"id": "p", "type": "point", "x": 1, "y": 1}],
+            dimensions=[{"type": "distance_h", "ref": "p", "value": -5}])
+
+
+@pytest.mark.parametrize("axis,pt", [("distance_h", {"x": -5, "y": 3}), ("distance_v", {"x": 3, "y": -5})])
+def test_point_left_or_below_origin_is_dimensionable(axis, pt):
+    sk = _sk([{"id": "p", "type": "point", **pt}],
+             constraints=[{"type": "ground", "refs": []}][:0],
+             dimensions=[{"type": axis, "ref": "p", "value": 5}])
+    rep = analyze(sk)
+    assert rep.conflicts == [] and rep.redundant is False
+    assert rep.dof == 1  # the other axis stays free
+
+
+def test_signed_distance_between_two_points_is_unsigned():
+    sk = _sk([{"id": "a", "type": "point", "x": 10, "y": 0}, {"id": "b", "type": "point", "x": 4, "y": 0}],
+             dimensions=[{"type": "distance_h", "refs": ["a", "b"], "value": 6}])
+    assert analyze(sk).conflicts == []
+
+
+def test_wrong_unsigned_distance_still_conflicts():
+    sk = _sk([{"id": "p", "type": "point", "x": -5, "y": 0}],
+             dimensions=[{"type": "distance_h", "ref": "p", "value": 7}])
+    assert analyze(sk).conflicts
+
+
+def test_serializer_emits_positive_distance_with_orientation():
+    from onshape_cad_mcp.sketch.serialize import to_feature_json
+    sk = _sk([{"id": "p", "type": "point", "x": -5, "y": 3}],
+             dimensions=[{"type": "distance_h", "ref": "p", "value": 5}])
+    dim = next(c for c in to_feature_json(sk, "S")["constraints"] if c["constraintType"] == "DISTANCE")
+    qty = next(p for p in dim["parameters"] if p["btType"].startswith("BTMParameterQuantity"))
+    assert qty["expression"] == "5 mm"
+    ids = {p["parameterId"] for p in dim["parameters"]}
+    assert {"localFirst", "externalSecond"} <= ids  # point is the first ref: origin -> point is negative
+
+
+@pytest.mark.parametrize("bad_id", ["a b", "a.b", "", 5, None, "x/y", "é"])
+def test_entity_ids_restricted(bad_id):
+    with pytest.raises(SketchSpecError, match="id"):
+        _sk([{"id": bad_id, "type": "point", "x": 0, "y": 0}])
+
+
+@pytest.mark.parametrize("plane", ["Back", "front", 3, ["Front"], "JCC"])
+def test_unknown_plane_rejected(plane):
+    from onshape_cad_mcp.sketch.spec import parse_sketch_spec
+    with pytest.raises(SketchSpecError, match="plane"):
+        parse_sketch_spec({"plane": plane, "entities": []}, {})
+
+
+def test_two_point_horizontal_serializes():
+    from onshape_cad_mcp.sketch.serialize import to_feature_json
+    sk = _sk([{"id": "a", "type": "point", "x": 0, "y": 0}, {"id": "b", "type": "point", "x": 5, "y": 0}],
+             constraints=[{"type": "horizontal", "refs": ["a", "b"]}])
+    con = to_feature_json(sk, "S")["constraints"][0]
+    assert con["constraintType"] == "HORIZONTAL"
+    assert [p["parameterId"] for p in con["parameters"]] == ["localFirst", "localSecond"]

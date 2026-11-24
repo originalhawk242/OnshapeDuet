@@ -196,15 +196,19 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
                 raise SketchSpecError(f"{what}: {d.refs[0]!r} is not a circle")
             emit(what, unit((o + 2, 2.0)), lambda v, o=o, val=val: 2.0 * v[o + 2] - val)
         else:  # distance_h / distance_v
+            # Onshape's distance is unsigned: residual |delta| - val, with the
+            # Jacobian sign taken from the nominal sign of delta.
             k = 0 if d.type == "distance_h" else 1
             if len(d.refs) == 1:
-                a = lay.point(d.refs[0], what)[k]
-                emit(what, unit((a, 1)), lambda v, a=a, val=val: v[a] - val)
+                a, b = lay.point(d.refs[0], what)[k], None
             else:
                 nrefs(d.refs, 2, what)
                 a = lay.point(d.refs[0], what)[k]
                 b = lay.point(d.refs[1], what)[k]
-                emit(what, unit((b, 1), (a, -1)), lambda v, a=a, b=b, val=val: v[b] - v[a] - val)
+            sgn = -1.0 if (x[a] - (x[b] if b is not None else 0.0)) < 0 else 1.0
+            terms = [(a, sgn)] + ([(b, -sgn)] if b is not None else [])
+            emit(what, unit(*terms),
+                 lambda v, a=a, b=b, val=val: abs(v[a] - (v[b] if b is not None else 0.0)) - val)
     return rows, lay
 
 

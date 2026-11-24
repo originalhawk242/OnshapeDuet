@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 
-from .spec import Sketch, SketchSpecError
+from .spec import Sketch, SketchSpecError, point_coords, touches_unassessed
 
 MM = 0.001  # millimetres -> metres
 PLANES = {"Front": "JCC", "Top": "JDC", "Right": "JEC"}
@@ -83,6 +83,13 @@ def _entity(eid: str, ent) -> dict:
     raise SketchSpecError(f"cannot serialise entity {eid!r} of type {ent.type!r}")
 
 
+def _point_param(ref: str | None, first: bool) -> dict:
+    """ref None = the sketch origin."""
+    pid = ("externalFirst" if first else "externalSecond") if ref is None \
+        else ("localFirst" if first else "localSecond")
+    return _origin(pid) if ref is None else _str(ref, pid)
+
+
 def _need(refs: list[str], n: int, what: str) -> None:
     if len(refs) != n:
         raise SketchSpecError(f"{what}: expected {n} ref(s), got {len(refs)}")
@@ -94,9 +101,13 @@ def to_feature_json(sketch: Sketch, name: str) -> dict:
     for i, c in enumerate(sketch.constraints, 1):
         what = f"constraint #{i} ({c.type})"
         eid = f"con{i}"
+        if touches_unassessed(sketch, c.refs):
+            continue  # never emit a constraint on an entity that is not written
         if c.type in _UNARY:
-            _need(c.refs, 1, what)
-            constraints.append(_con(_UNARY[c.type], eid, [_str(c.refs[0], "localFirst")]))
+            if len(c.refs) not in (1, 2):
+                raise SketchSpecError(f"{what}: expected 1 ref (a line) or 2 refs (points), got {len(c.refs)}")
+            constraints.append(_con(_UNARY[c.type], eid, [
+                _str(r, "localFirst" if n == 0 else "localSecond") for n, r in enumerate(c.refs)]))
         elif c.type in _BINARY:
             _need(c.refs, 2, what)
             constraints.append(_con(_BINARY[c.type], eid, [
@@ -110,6 +121,8 @@ def to_feature_json(sketch: Sketch, name: str) -> dict:
     for i, d in enumerate(sketch.dimensions, 1):
         what = f"dimension #{i} ({d.type})"
         eid = f"dim{i}"
+        if touches_unassessed(sketch, d.refs):
+            continue
         if d.type == "length":
             _need(d.refs, 1, what)
             constraints.append(_con("LENGTH", eid, [
@@ -124,15 +137,24 @@ def to_feature_json(sketch: Sketch, name: str) -> dict:
             constraints.append(_con("DIAMETER", eid, [_str(d.refs[0], "localFirst"), _qty(d)]))
         elif d.type in ("distance_h", "distance_v"):
             direction = _direction("HORIZONTAL" if d.type == "distance_h" else "VERTICAL")
-            if len(d.refs) == 1:  # point to the sketch origin
-                first, second = _origin("externalFirst"), _str(d.refs[0], "localSecond")
+            k = 0 if d.type == "distance_h" else 1
+            # Onshape's DISTANCE value is unsigned and its direction comes from the
+            # order of the two references, so order them (first -> second) with a
+            # non-negative nominal delta along the axis; the value stays positive.
+            if len(d.refs) == 1:  # point and the sketch origin
+                pair = [None, d.refs[0]]
+                if point_coords(sketch, d.refs[0])[k] < 0:
+                    pair.reverse()
             else:
                 _need(d.refs, 2, what)
-                first, second = _str(d.refs[0], "localFirst"), _str(d.refs[1], "localSecond")
-            constraints.append(_con("DISTANCE", eid, [first, second, direction, _qty(d)]))
+                pair = list(d.refs)
+                if point_coords(sketch, pair[1])[k] < point_coords(sketch, pair[0])[k]:
+                    pair.reverse()
+            constraints.append(_con("DISTANCE", eid, [
+                _point_param(pair[0], True), _point_param(pair[1], False), direction, _qty(d)]))
         else:
             raise SketchSpecError(f"{what}: cannot serialise")
-    plane_id = PLANES.get(sketch.plane, sketch.plane)
+    plane_id = PLANES[sketch.plane]
     return {
         "btType": "BTMSketch-151", "featureType": "newSketch",
         "name": name, "suppressed": False,

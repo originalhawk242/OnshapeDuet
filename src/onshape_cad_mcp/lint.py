@@ -19,7 +19,7 @@ _DEFAULT_NAME = re.compile(
 
 @dataclass(frozen=True)
 class Finding:
-    level: Literal["refuse", "warn"]
+    level: Literal["refuse", "error", "warn"]
     code: str
     message: str
 
@@ -46,6 +46,12 @@ def _dimensions(spec: dict) -> list[dict]:
 def lint_sketch(spec: dict, report: DofReport, name: str) -> list[Finding]:
     out: list[Finding] = []
     dims = _dimensions(spec)
+
+    if report.not_assessed:
+        out.append(Finding("refuse", "SKETCH_UNSUPPORTED_ENTITY",
+                           f"entities not supported yet: {_list(report.not_assessed)}; "
+                           "they cannot be written, so nothing is written. Remove them "
+                           "(supported: point, line, circle, rectangle)"))
 
     if report.conflicts:
         out.append(Finding("refuse", "SKETCH_CONFLICT",

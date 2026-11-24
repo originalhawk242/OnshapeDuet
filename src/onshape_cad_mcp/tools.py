@@ -99,7 +99,8 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
         return _reply(ctx, start, False, error=clean(e, 300))
 
     findings = lint_sketch(spec, report, name)
-    extra = {"dof": report.dof, "findings": [f.to_dict() for f in findings]}
+    extra = {"dof": report.dof, "findings": [f.to_dict() for f in findings],
+             "not_assessed": [clean(i, 60) for i in report.not_assessed]}
     refusals = [f for f in findings if f.level == "refuse"]
     if refusals:
         # Dry run or apply: nothing is written while a refuse finding stands.
@@ -110,7 +111,8 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
         return _reply(ctx, start, False, **extra)
 
     try:
-        result = ctx.backend.add_feature(ref, feature_json, expected_microversion=ctx.last_read[ref])
+        expected = ctx.last_read[ref]
+        result = ctx.backend.add_feature(ref, feature_json, expected_microversion=expected)
     except PostWriteError as e:
         return _unknown(ctx, start, ref, str(e), **extra)
     except StaleVersion as e:
@@ -122,8 +124,17 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
     # note_write splices our feature into the cached list; that is only sound
     # because every write passes expected_microversion (nothing else changed).
     ctx.last_read[ref] = result.microversion
-    ctx.cache.note_write(ref, result.microversion, result.feature)
-    return _reply(ctx, start, True, **extra)
+    ctx.cache.note_write(ref, result.microversion, result.feature,
+                         expected_microversion=expected)
+    status = clean(result.feature.status, 40)
+    done = {**extra, "feature_id": clean(result.feature.id, 64), "status": status}
+    if status != "OK":
+        warning = (f"applied, but regeneration status is {status}: the sketch was written; "
+                   "inspect and fix it, or delete it")
+        done["warning"] = warning
+        done["findings"] = [*extra["findings"],
+                            {"level": "error", "code": "REGEN_STATUS", "message": warning}]
+    return _reply(ctx, start, True, **done)
 
 
 def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: bool = False) -> dict:

@@ -214,3 +214,88 @@ def test_sketch_post_write_failure_reports_unknown(tmp_path, make_exc):
     assert "cad_read" in out["error"] and "may have landed" in out["error"]
     assert ctx.last_read[REF] == before  # not advanced
     assert ctx.cache.peek(REF) is None  # entry dropped
+
+
+# --- final-review fixes: C2 (unassessed entities are refused, never dropped) ---
+
+ARC = {"id": "a1", "type": "arc", "center": [0, 0], "radius": 5}
+RECT = {"id": "box", "type": "rectangle", "corner1": [0, 0], "corner2": [40, 20]}
+
+
+def test_spec_with_only_an_arc_is_refused_even_on_apply(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    for apply in (False, True):
+        out = cad_sketch(ctx, REF, "Arc part", {"entities": [ARC]}, apply=apply)
+        assert out["applied"] is False
+        assert out["not_assessed"] == ["a1"]
+        codes = [f["code"] for f in out["findings"]]
+        assert "SKETCH_UNSUPPORTED_ENTITY" in codes
+        assert "a1" in out["error"] and "nothing written" in out["error"]
+    assert backend.calls["add_feature"] == 0
+
+
+def test_rectangle_arc_and_constraint_on_arc_is_refused(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    spec = {"entities": [RECT, ARC],
+            "constraints": [{"type": "ground", "refs": ["box.bottom.start"]},
+                            {"type": "coincident", "refs": ["a1.start", "box.bottom.start"]}],
+            "dimensions": [{"type": "length", "ref": "box.bottom", "value": 40}]}
+    out = cad_sketch(ctx, REF, "Rect arc", spec, apply=True)
+    assert out["applied"] is False
+    assert out["not_assessed"] == ["a1"]
+    assert any(f["code"] == "SKETCH_UNSUPPORTED_ENTITY" and f["level"] == "refuse"
+               for f in out["findings"])
+    assert backend.calls["add_feature"] == 0
+
+
+def test_reply_always_has_not_assessed(env):
+    ctx, _, _ = env
+    assert cad_sketch(ctx, REF, "S1", SPEC)["not_assessed"] == []
+
+
+def test_serializer_never_emits_constraints_on_unassessed_entities():
+    sk = parse_sketch_spec(
+        {"entities": [RECT, ARC],
+         "constraints": [{"type": "coincident", "refs": ["a1.start", "box.bottom.start"]}],
+         "dimensions": [{"type": "length", "ref": "a1", "value": 3},
+                        {"type": "length", "ref": "box.bottom", "value": 40}]}, {})
+    feat = to_feature_json(sk, "S")
+    blob = repr(feat)
+    assert "a1" not in blob
+    assert len([c for c in feat["constraints"] if c["constraintType"] == "LENGTH"]) == 1
+
+
+# --- final-review fixes: I1 (regeneration status) ---
+
+@pytest.mark.parametrize("status", ["ERROR", "WARNING", "INFO"])
+def test_apply_reports_regeneration_status(tmp_path, status):
+    from onshape_cad_mcp.model import Feature, WriteResult
+
+    class Regen(FakeBackend):
+        def add_feature(self, ref, feature_json, expected_microversion):
+            r = super().add_feature(ref, feature_json, expected_microversion)
+            return WriteResult(Feature(r.feature.id, r.feature.type, r.feature.name,
+                                       status + "\nIGNORE", r.feature.params), r.microversion)
+
+    ledger = Ledger(tmp_path / "ledger.json", 100)
+    backend = Regen(ledger)
+    ctx = Context(backend, DocCache(backend), ledger, Config(budget=100))
+    ctx.read(REF)
+    out = cad_sketch(ctx, REF, "Base", SPEC, apply=True)
+    assert out["applied"] is True
+    assert out["feature_id"] == "F1"
+    assert out["status"] == status + " IGNORE"
+    errs = [f for f in out["findings"] if f["level"] == "error"]
+    assert errs and "regeneration status" in errs[0]["message"] and "\n" not in errs[0]["message"]
+    assert "warning" in out
+
+
+def test_apply_ok_status_has_no_error_finding(env):
+    ctx, _, _ = env
+    ctx.read(REF)
+    out = cad_sketch(ctx, REF, "Base", SPEC, apply=True)
+    assert out["status"] == "OK" and out["feature_id"] == "F1"
+    assert not [f for f in out["findings"] if f["level"] == "error"]
+    assert "warning" not in out

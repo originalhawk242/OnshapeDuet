@@ -31,7 +31,7 @@ def test_own_write_updates_cache_without_refetch():
     c = DocCache(b)
     mv = c.read(REF).microversion
     res = b.add_feature(REF, FEAT, mv)
-    c.note_write(REF, res.microversion, res.feature)
+    c.note_write(REF, res.microversion, res.feature, expected_microversion=mv)
     b.calls.clear()
     fl = c.read(REF)
     assert b.calls["get_microversion"] == 1
@@ -88,3 +88,21 @@ def test_ledger_charges_two_then_one(tmp_path):
     assert led._read() == 2
     c.read(REF)
     assert led._read() == 3
+
+
+def test_note_write_with_mismatched_expected_version_drops_entry():
+    b = FakeBackend()
+    c = DocCache(b)
+    mv = c.read(REF).microversion
+    res = b.add_feature(REF, FEAT, mv)
+    c.note_write(REF, res.microversion, res.feature, expected_microversion="not-the-cached-one")
+    assert c.peek(REF) is None
+
+
+def test_note_write_without_expected_version_drops_entry():
+    b = FakeBackend()
+    c = DocCache(b)
+    mv = c.read(REF).microversion
+    res = b.add_feature(REF, FEAT, mv)
+    c.note_write(REF, res.microversion, res.feature)
+    assert c.peek(REF) is None

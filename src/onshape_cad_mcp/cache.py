@@ -34,17 +34,22 @@ class DocCache:
     def invalidate(self, ref: DocRef) -> None:
         self._entries.pop(ref, None)
 
-    def note_write(self, ref: DocRef, new_microversion: str, feature: Feature | None = None) -> None:
+    def note_write(self, ref: DocRef, new_microversion: str, feature: Feature | None = None,
+                   *, expected_microversion: str | None = None) -> None:
         """Record the state after our own write without refetching.
 
         With a feature, it replaces the same-id feature or is appended, and the
         entry moves to new_microversion. Without one the resulting feature list
         is unknown, so the entry is dropped. No entry: nothing to do.
+
+        The splice is only sound if the cached entry is the version the write
+        was pinned to: when expected_microversion is missing or differs from the
+        entry's version, the entry is dropped instead.
         """
         entry = self._entries.get(ref)
         if entry is None:
             return
-        if feature is None:
+        if feature is None or entry.microversion != expected_microversion:
             del self._entries[ref]
             return
         feats = [f for f in entry.features]

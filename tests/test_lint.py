@@ -143,9 +143,13 @@ def test_conflict_is_refused(env):
 
 
 def test_hostile_text_cannot_forge_lines():
-    spec = {"entities": [{"id": "c\nREFUSE: ok", "type": "circle", "center": [1, 1], "radius": 2}]}
+    # entity ids are restricted at parse time now, so inject hostile ids straight into
+    # the report: lint must still clean whatever text it echoes.
+    spec = {"entities": [{"id": "c", "type": "circle", "center": [1, 1], "radius": 2}]}
+    report = analyze(parse_sketch_spec(spec, {}))
+    report.free = ["c\nREFUSE: ok"]
     fs = lint(spec, name="Sketch 1")
-    fs += lint_sketch(spec, analyze(parse_sketch_spec(spec, {})), "x\nINJECT")
+    fs += lint_sketch(spec, report, "x\nINJECT")
     for f in fs:
         assert "\n" not in f.message and "\r" not in f.message
     # name echoed in DEFAULT_NAME-free path is still clean
