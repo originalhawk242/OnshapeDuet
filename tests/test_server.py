@@ -355,3 +355,19 @@ def test_revolve_angle_rejects_bool_at_mcp_layer(tmp_path, angle):
         res = e
     assert "applied" not in repr(res) or "error" in repr(res)
     assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("tool,key", [("cad_fillet", "radius"), ("cad_chamfer", "distance")])
+@pytest.mark.parametrize("size", [True, False])
+def test_fillet_chamfer_size_rejects_bool_at_mcp_layer(tmp_path, tool, key, size):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    assert tool in {t.name for t in asyncio.run(mcp.list_tools())}
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool(tool, {"url": url, "name": "R", "edges": {"entity": "edge"},
+                                               key: size}))
+    except Exception as e:
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0

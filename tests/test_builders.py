@@ -165,3 +165,67 @@ def test_revolve_summary():
     b = build_revolve(FL, sketch="Base", axis="ax", angle=90)
     assert b.summary == {"sketch": "Base", "axis": "ax", "angle": "90 deg",
                          "operation": "new", "symmetric": False}
+
+
+# ---- cad_fillet / cad_chamfer builders ----
+from onshape_duet.features.builders import build_chamfer, build_fillet  # noqa: E402
+
+EDGES = {"entity": "edge", "created_by": "Base", "geometry": "line"}
+
+
+def test_build_fillet_matches_spec():
+    b = build_fillet(FL, edges=EDGES, radius=2)
+    assert_matches_spec(b.feature_json, "fillet")
+    p = _by_id(b)
+    assert b.feature_json["featureType"] == "fillet"
+    assert p["filletType"]["value"] == "EDGE"
+    assert p["blendControlType"]["value"] == "RADIUS"
+    assert p["crossSection"]["value"] == "CIRCULAR"
+    assert p["radius"]["expression"] == "2 mm"
+    assert p["entities"]["queries"][0]["queryString"]
+    assert b.values[0].literal == 2
+
+
+def test_build_chamfer_matches_spec():
+    b = build_chamfer(FL, edges=[EDGES], distance="1 mm")
+    assert_matches_spec(b.feature_json, "chamfer")
+    p = _by_id(b)
+    assert b.feature_json["featureType"] == "chamfer"
+    assert p["chamferType"]["value"] == "EQUAL_OFFSETS"
+    assert p["width"]["expression"] == "1 mm"
+    assert "entities" in p
+
+
+def test_fillet_face_selector_allowed():
+    face = {"entity": "face", "created_by": "Base", "cap": "end"}
+    assert build_fillet(FL, edges=face, radius=1).feature_json["featureType"] == "fillet"
+
+
+@pytest.mark.parametrize("build,kw", [(build_fillet, {"radius": 1}), (build_chamfer, {"distance": 1})])
+def test_fillet_chamfer_body_selector_refused(build, kw):
+    with pytest.raises(FeatureSpecError, match="edges"):
+        build(FL, edges={"entity": "body", "created_by": "Base"}, **kw)
+
+
+def test_fillet_summary_echoes_selector_not_ids():
+    sel = {"entity": "edge", "created_by": "Base", "geometry": "line"}
+    s = build_fillet(FL, edges=sel, radius=3).summary
+    assert s["edges"] == sel and s["radius"] == "3 mm"
+    import json
+    text = json.dumps(s)
+    assert "Fabc" not in text and "makeId" not in text
+
+
+def test_fillet_radius_variable_reference():
+    b = build_fillet(FL, edges=EDGES, radius="#r")
+    assert _by_id(b)["radius"]["expression"] == "#r"
+    assert b.values[0].expr == "#r"
+    assert build_chamfer(FL, edges=EDGES, distance="#d").values[0].expr == "#d"
+
+
+@pytest.mark.parametrize("v", [True, 0, -1, "x"])
+def test_fillet_chamfer_bad_size_refused(v):
+    with pytest.raises(FeatureSpecError):
+        build_fillet(FL, edges=EDGES, radius=v)
+    with pytest.raises(FeatureSpecError):
+        build_chamfer(FL, edges=EDGES, distance=v)

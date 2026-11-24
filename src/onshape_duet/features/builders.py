@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from onshape_duet.features.params import (FeatureSpecError, Value, feature, length, p_bool,
                                           p_enum, p_qty, p_query)
 from onshape_duet.features.params import angle as _angle
-from onshape_duet.features.refs import PlaneRef, plane_param, resolve
+from onshape_duet.features.refs import (PlaneRef, RefError, compile_selector, plane_param, resolve,
+                                       selector_entity)
 from onshape_duet.model import FeatureList
 from onshape_duet.textsafe import clean
 
@@ -132,3 +133,30 @@ def build_revolve(fl: FeatureList, *, sketch: str, axis: str, angle=360,
     summary = {"sketch": clean(sketch, 100), "axis": axis, "angle": value.expr,
                "operation": op, "symmetric": symmetric}
     return Built(feature("revolve", "", params), values, summary)
+
+
+def _edge_query(edges, fl: FeatureList):
+    """Edge or face selector (a face rounds all its edges); refuses bodies."""
+    if selector_entity(edges) not in ("edge", "face"):
+        raise RefError("edges: selector entity must be 'edge' or 'face' (a face selects all of "
+                       "its edges), not 'body'")
+    return p_query("entities", [compile_selector(edges, fl, "edges")])
+
+
+def build_fillet(fl: FeatureList, *, edges, radius) -> Built:
+    query = _edge_query(edges, fl)
+    r = length(radius, "radius")
+    params = [p_enum("filletType", "FilletType", "EDGE"), query,
+              p_enum("blendControlType", "BlendControlType", "RADIUS"),
+              p_enum("crossSection", "FilletCrossSection", "CIRCULAR"),
+              p_qty("radius", r)]
+    return Built(feature("fillet", "", params), [r],
+                 {"edges": _clean_deep(edges), "radius": r.expr})
+
+
+def build_chamfer(fl: FeatureList, *, edges, distance) -> Built:
+    query = _edge_query(edges, fl)
+    d = length(distance, "distance")
+    params = [query, p_enum("chamferType", "ChamferType", "EQUAL_OFFSETS"), p_qty("width", d)]
+    return Built(feature("chamfer", "", params), [d],
+                 {"edges": _clean_deep(edges), "distance": d.expr})

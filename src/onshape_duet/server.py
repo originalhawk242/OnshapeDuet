@@ -13,7 +13,8 @@ from .budget import Ledger
 from .cache import DocCache
 from .config import load_config
 from .docref import parse_url
-from .feature_tools import cad_extrude, cad_find, cad_plane, cad_revolve
+from .feature_tools import (cad_chamfer, cad_extrude, cad_fillet, cad_find, cad_plane,
+                           cad_revolve)
 from .tools import Context, cad_read, cad_sketch, cad_status, cad_variable
 
 DEFAULT_CONFIG = Path.home() / ".onshape-duet" / "config.toml"
@@ -146,6 +147,42 @@ def build_server(ctx: Context) -> MCPServer:
         except ValueError as e:
             return {"applied": False, "error": str(e)}
         return cad_revolve(ctx, ref, name, sketch, axis, angle, operation, symmetric, flip, apply)
+
+    @mcp.tool(name="cad_fillet")
+    def cad_fillet_tool(url: str, name: str, edges: dict | list,
+                    radius: StrictFloat | StrictInt | StrictStr,
+                    apply: StrictBool = False) -> dict:
+        """Round (fillet) the selected edges with a constant circular radius. edges: an edge selector (or a list of them, or a face selector, which
+        selects all of that face's edges), e.g. {"entity": "edge", "created_by": "Base"};
+        body selectors are refused. radius: length number (mm), '2 in' or '#variable'. DRY RUN
+        IS THE DEFAULT: nothing is written unless apply=True. Show the dry-run result
+        (summary, findings) to the owner, then apply, and read afterwards. Read the document
+        (cad_read) before apply; a stale write is refused. Costs: a dry run is free once the
+        document was read; apply costs 2 requests (version check + write), or 3 when the
+        write reply names no new version."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_fillet(ctx, ref, name, edges, radius, apply)
+
+    @mcp.tool(name="cad_chamfer")
+    def cad_chamfer_tool(url: str, name: str, edges: dict | list,
+                    distance: StrictFloat | StrictInt | StrictStr,
+                    apply: StrictBool = False) -> dict:
+        """Chamfer the selected edges with equal offsets. edges: an edge selector (or a list of them, or a face selector, which
+        selects all of that face's edges), e.g. {"entity": "edge", "created_by": "Base"};
+        body selectors are refused. distance: length number (mm), '2 in' or '#variable'. DRY RUN
+        IS THE DEFAULT: nothing is written unless apply=True. Show the dry-run result
+        (summary, findings) to the owner, then apply, and read afterwards. Read the document
+        (cad_read) before apply; a stale write is refused. Costs: a dry run is free once the
+        document was read; apply costs 2 requests (version check + write), or 3 when the
+        write reply names no new version."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_chamfer(ctx, ref, name, edges, distance, apply)
 
     return mcp
 

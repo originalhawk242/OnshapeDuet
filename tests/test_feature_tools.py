@@ -160,3 +160,15 @@ def test_revolve_dry_run_summary(with_sketch):
     assert out["applied"] is True
     assert "Spin [revolve] OK" in cad_read(ctx, REF)
     assert "axis" in cad_revolve(ctx, REF, "Spin2", "Base", 'a"); x(')["error"]
+
+
+def test_fillet_chamfer_dry_run(with_sketch):
+    from onshape_duet.feature_tools import cad_chamfer, cad_fillet
+    ctx, backend, _ = with_sketch
+    sel = {"entity": "edge", "created_by": "Base", "geometry": "line"}
+    out = cad_fillet(ctx, REF, "Round", sel, 2)
+    assert out["applied"] is False and out["feature_type"] == "fillet"
+    assert out["summary"]["radius"] == "2 mm"
+    out = cad_chamfer(ctx, REF, "Bevel", sel, 1)
+    assert out["applied"] is False and out["feature_type"] == "chamfer"
+    assert "edges" in cad_fillet(ctx, REF, "R2", {"entity": "body", "created_by": "Base"}, 2)["error"]

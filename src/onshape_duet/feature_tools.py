@@ -5,7 +5,8 @@ from collections.abc import Callable
 
 from .backends.base import PostWriteError, StaleVersion
 from .docref import DocRef
-from .features.builders import Built, build_extrude, build_plane, build_revolve
+from .features.builders import (Built, build_chamfer, build_extrude, build_fillet, build_plane,
+                                       build_revolve)
 from .features.find import find_script, parse_find_result
 from .features.params import FeatureSpecError
 from .features.refs import compile_selector, selector_entity
@@ -110,3 +111,14 @@ def cad_revolve(ctx: Context, ref: DocRef, name: str, sketch: str, axis: str, an
         lambda fl: build_revolve(fl, sketch=sketch, axis=axis, angle=angle, operation=operation,
                                  symmetric=symmetric, flip=flip),
         apply, "the revolve")
+
+
+def cad_fillet(ctx: Context, ref: DocRef, name: str, edges, radius, apply: bool = False) -> dict:
+    return run_feature(ctx, ref, name, lambda fl: build_fillet(fl, edges=edges, radius=radius),
+                       apply, "the fillet")
+
+
+def cad_chamfer(ctx: Context, ref: DocRef, name: str, edges, distance, apply: bool = False) -> dict:
+    return run_feature(ctx, ref, name,
+                       lambda fl: build_chamfer(fl, edges=edges, distance=distance),
+                       apply, "the chamfer")
