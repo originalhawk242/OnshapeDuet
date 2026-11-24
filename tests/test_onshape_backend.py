@@ -498,3 +498,18 @@ def test_set_variable_posts_real_assignvariable_shape(tmp_path):
     ps = {p["parameterId"]: p for p in f["parameters"]}
     assert ps["name"]["value"] == "plate_w" and ps["lengthValue"]["expression"] == "40 mm"
     assert ps["variableType"]["value"] == "LENGTH" and ps["mode"]["value"] == "ASSIGNED"
+
+
+def test_eval_featurescript_posts_script_unpinned(tmp_path):
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        return httpx.Response(200, json={"result": {"btType": "x.BTFSValueArray", "value": []}})
+    b, ledger = make(tmp_path, handler)
+    out = b.eval_featurescript(REF, "function(){}")
+    assert out == {"btType": "x.BTFSValueArray", "value": []}
+    assert len(seen) == 1 and ledger.used == 1
+    assert seen[0].method == "POST" and seen[0].url.path.endswith("/e/" + "c" * 24 + "/featurescript")
+    body = json.loads(seen[0].content)
+    assert body == {"script": "function(){}", "queries": {}} and "sourceMicroversion" not in body

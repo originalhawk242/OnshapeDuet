@@ -70,6 +70,7 @@ class FakeBackend:
         self.calls: Counter[str] = Counter()
         self._docs: dict[DocRef, _Doc] = {}
         self.next_status: str | None = None
+        self.find_results: dict[str, tuple[int, list[str]]] = {}
 
     def _doc(self, ref: DocRef) -> _Doc:
         return self._docs.setdefault(ref, _Doc())
@@ -97,6 +98,14 @@ class FakeBackend:
         self._enter("list_features")
         d = self._doc(ref)
         return FeatureList(self._mv(d), copy.deepcopy(d.features))
+
+    def eval_featurescript(self, ref: DocRef, script: str) -> dict:
+        self._enter("eval_featurescript")
+        count, cents = next((v for k, v in self.find_results.items() if k in script), (0, []))
+        pre = "com.belmonttech.serialize.fsvalue."
+        return {"btType": pre + "BTFSValueArray", "typeTag": "",
+                "value": [{"btType": pre + "BTFSValueString", "typeTag": "", "value": v}
+                          for v in [str(count), *cents]]}
 
     def get_variables(self, ref: DocRef) -> list[Variable]:
         self._enter("get_variables")

@@ -13,6 +13,7 @@ from .budget import Ledger
 from .cache import DocCache
 from .config import load_config
 from .docref import parse_url
+from .feature_tools import cad_find
 from .tools import Context, cad_read, cad_sketch, cad_status, cad_variable
 
 DEFAULT_CONFIG = Path.home() / ".onshape-duet" / "config.toml"
@@ -69,6 +70,20 @@ def build_server(ctx: Context) -> MCPServer:
         except ValueError as e:
             return {"applied": False, "error": str(e)}
         return cad_variable(ctx, ref, name, expression, apply)
+
+    @mcp.tool(name="cad_find")
+    def cad_find_tool(url: str, selector: dict | list, evaluate: StrictBool = False) -> dict:
+        """Preview a selection. The selector dict (entity face/edge/body, created_by,
+        cap, edges_of, geometry, normal, farthest) is the same one every typed feature
+        tool takes for edges/faces/bodies. Dry (default): returns the compiled query;
+        costs 0 requests if the document was read with cad_read. evaluate=True runs one
+        read-only evaluation (+1 request) and returns the match count and centroids in
+        mm. Never returns transient ids; nothing is written."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"error": str(e)}
+        return cad_find(ctx, ref, selector, evaluate)
 
     return mcp
 
