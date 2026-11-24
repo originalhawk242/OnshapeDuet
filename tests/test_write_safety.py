@@ -130,7 +130,7 @@ def test_skew_error_says_may_have_landed_once(tmp_path):
 
 
 def test_creating_a_variable_then_writing_gives_an_accurate_message(tmp_path):
-    doc = Doc({"sourceMicroversion": "mv2"})
+    doc = Doc({"sourceMicroversion": "mv2"}, version_after_post="mv2")  # no human edit
     ctx, _ = ctx_for(tmp_path, doc)
     ctx.read(REF)
     out = cad_variable(ctx, REF, "w", "5 mm", apply=True)

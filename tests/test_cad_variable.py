@@ -253,3 +253,33 @@ def test_apply_reports_requests_and_budget_left(env):
     out = cad_variable(ctx, REF, "w", "5 mm", apply=True)
     assert out["applied"] is True and out["requests"] == ledger.used - before == 2
     assert out["budget_left"] == ledger.remaining
+
+
+def test_reread_hint_does_not_mask_a_later_human_edit(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    assert cad_variable(ctx, REF, "w", "5 mm", apply=True)["applied"] is True
+    # untouched document: the accurate "variable was just created" hint
+    hint = cad_variable(ctx, REF, "w", "6 mm", apply=True)
+    assert hint["applied"] is False and "variable was just created" in hint["error"]
+    # a genuine human edit afterwards: the plain stale message, not the old hint
+    backend.simulate_human_edit(REF)
+    out = cad_variable(ctx, REF, "w", "6 mm", apply=True)
+    assert out["applied"] is False and "stale" in out["error"]
+    assert "just created" not in out["error"]
+    assert backend.calls["set_variable"] == 1
+    ctx.read(REF)
+    assert cad_variable(ctx, REF, "w", "7 mm", apply=True)["applied"] is True
+
+
+def test_successful_write_clears_the_hint(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    cad_variable(ctx, REF, "w", "5 mm", apply=True)     # creation sets the hint
+    assert REF in ctx.reread
+    ctx.read(REF)
+    assert REF not in ctx.reread                         # a read clears it
+    cad_variable(ctx, REF, "h", "5 mm", apply=True)     # creation again
+    ctx.read(REF)
+    assert cad_variable(ctx, REF, "w", "9 mm", apply=True)["applied"] is True  # update
+    assert REF not in ctx.reread

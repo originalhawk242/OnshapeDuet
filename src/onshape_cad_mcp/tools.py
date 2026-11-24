@@ -93,6 +93,24 @@ _NEW_VARIABLE = ("re-read with cad_read before the next write: a variable was ju
                  "so the cached feature list no longer matches the document")
 
 
+def _refusal(ctx: Context, ref: DocRef) -> str:
+    """Why a write is refused for lack of a cached copy, from the CURRENT state: if a
+    re-read hint is pending, one version check tells whether the document has changed
+    since (then the plain stale message is the true one) or not (then the hint is)."""
+    reason = ctx.reread.get(ref)
+    if not reason:
+        return _STALE
+    mv = ctx.last_read.get(ref)
+    if mv is not None:
+        try:
+            if ctx.backend.get_microversion(ref) != mv:
+                ctx.reread.pop(ref, None)
+                return _STALE
+        except _FAILURES:
+            pass
+    return reason
+
+
 def _locked(fn):
     @functools.wraps(fn)
     def wrapper(ctx: Context, *args, **kwargs):
@@ -169,7 +187,7 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
         report = analyze(sketch)
         feature_json = to_feature_json(sketch, name)
     except StaleVersion:
-        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _STALE)
+        return _reply(ctx, start, False, error=_refusal(ctx, ref))
     except (SketchSpecError, *_FAILURES) as e:
         return _reply(ctx, start, False, error=clean(e, 300))
 
@@ -199,6 +217,7 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
         return _reply(ctx, start, False, error=clean(e, 300), **extra)
     # note_write splices our feature into the cached list; that is only sound
     # because every write passes expected_microversion (nothing else changed).
+    ctx.reread.pop(ref, None)  # a successful write supersedes any earlier hint
     if result.exact:
         ctx.last_read[ref] = result.microversion
         ctx.cache.note_write(ref, result.microversion, result.feature,
@@ -235,7 +254,7 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     try:
         fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
     except StaleVersion:
-        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _STALE)
+        return _reply(ctx, start, False, error=_refusal(ctx, ref))
     except _FAILURES as e:
         return _reply(ctx, start, False, error=clean(e, 300))
     current = {v.name: v.expression for v in variables_from_features(fl)}
@@ -279,6 +298,7 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
         ctx.lose_track(ref, _REFETCHED)
         return _reply(ctx, start, True, **extra, note=_REFETCHED)
     new_mv = result.microversion
+    ctx.reread.pop(ref, None)
     ctx.last_read[ref] = new_mv
     # An updated variable keeps its feature id, so the cache can be spliced; a new
     # one has an unknown id, so the entry is dropped (the next write needs cad_read).
