@@ -8,6 +8,7 @@ from typing import Literal
 
 from onshape_duet.sketch.serialize import _num
 from onshape_duet.sketch.spec import _NUM, _UNIT_MM
+from onshape_duet.textsafe import clean
 
 
 class FeatureSpecError(ValueError):
@@ -26,6 +27,7 @@ class Value:
 _LEN_RE = re.compile(rf"^\s*({_NUM})\s*(mm|cm|m|in)?\s*$")
 _ANGLE_RE = re.compile(rf"^\s*({_NUM})\s*(deg)?\s*$")
 _VAR_RE = re.compile(r"^#([a-z][a-z0-9_]*)$")
+MAX_COUNT = 10000
 _INT_RE = re.compile(r"^\s*\+?\d+\s*$")
 
 
@@ -36,9 +38,9 @@ def _is_number(x) -> bool:
 def _var(x, arg: str, kind: str):
     m = _VAR_RE.match(x.strip())
     if not m:
-        raise FeatureSpecError(f"{arg}: invalid variable reference {x!r} (use #name, lowercase letters/digits/_)")
+        raise FeatureSpecError(f"{clean(arg)}: invalid variable reference {clean(x)!r} (use #name, lowercase letters/digits/_)")
     if kind != "length":
-        raise FeatureSpecError(f"{arg}: variable references are not supported for {kind} arguments yet")
+        raise FeatureSpecError(f"{clean(arg)}: variable references are not supported for {kind} arguments yet")
     return m.group(1)
 
 
@@ -47,20 +49,22 @@ def length(x, arg: str, *, positive: bool = True) -> Value:
         name = _var(x, arg, "length")
         return Value("length", f"#{name}", None, name, arg)
     if _is_number(x):
-        mm, expr = float(x), None
-        if math.isfinite(mm):
-            expr = f"{_num(mm)} mm"
+        try:
+            mm = float(x)
+        except OverflowError:
+            raise FeatureSpecError(f"{clean(arg)}: length is too large") from None
+        expr = f"{_num(mm)} mm" if math.isfinite(mm) else None
     elif isinstance(x, str) and (m := _LEN_RE.match(x)):
         unit = m.group(2) or "mm"
         mm = float(m.group(1)) * _UNIT_MM[unit]
         expr = f"{_num(float(m.group(1)))} {unit}"
     else:
         raise FeatureSpecError(
-            f"{arg}: expected a length like 10, '10 mm', '2 in' or '#var', got {x!r}")
+            f"{clean(arg)}: expected a length like 10, '10 mm', '2 in' or '#var', got {clean(x)!r}")
     if not math.isfinite(mm):
-        raise FeatureSpecError(f"{arg}: length must be finite, got {x!r}")
-    if positive and mm <= 0:
-        raise FeatureSpecError(f"{arg}: length must be > 0, got {x!r}")
+        raise FeatureSpecError(f"{clean(arg)}: length must be finite, got {clean(x)!r}")
+    if positive and (mm <= 0 or float(expr.split()[0]) == 0):
+        raise FeatureSpecError(f"{clean(arg)}: length must be > 0, got {clean(x)!r}")
     return Value("length", expr, mm, None, arg)
 
 
@@ -68,13 +72,18 @@ def angle(x, arg: str) -> Value:
     if isinstance(x, str) and x.strip().startswith("#"):
         _var(x, arg, "angle")
     if _is_number(x):
-        deg = float(x)
+        try:
+            deg = float(x)
+        except OverflowError:
+            raise FeatureSpecError(f"{clean(arg)}: angle is too large") from None
     elif isinstance(x, str) and (m := _ANGLE_RE.match(x)):
         deg = float(m.group(1))
     else:
-        raise FeatureSpecError(f"{arg}: expected an angle like 45 or '45 deg', got {x!r}")
+        raise FeatureSpecError(f"{clean(arg)}: expected an angle like 45 or '45 deg', got {clean(x)!r}")
     if not math.isfinite(deg) or not 0 < deg <= 360:
-        raise FeatureSpecError(f"{arg}: angle must satisfy 0 < deg <= 360, got {x!r}")
+        raise FeatureSpecError(f"{clean(arg)}: angle must satisfy 0 < deg <= 360, got {clean(x)!r}")
+    if float(_num(deg)) == 0:
+        raise FeatureSpecError(f"{clean(arg)}: angle must satisfy 0 < deg <= 360, got {clean(x)!r}")
     return Value("angle", f"{_num(deg)} deg", deg, None, arg)
 
 
@@ -83,12 +92,12 @@ def count(x, arg: str, *, minimum: int = 2) -> Value:
         _var(x, arg, "count")
     if isinstance(x, int) and not isinstance(x, bool):
         n = x
-    elif isinstance(x, str) and _INT_RE.match(x):
+    elif isinstance(x, str) and _INT_RE.match(x) and len(x.strip()) <= 12:
         n = int(x)
     else:
-        raise FeatureSpecError(f"{arg}: expected an integer count, got {x!r}")
-    if n < minimum:
-        raise FeatureSpecError(f"{arg}: count must be >= {minimum}, got {x!r}")
+        raise FeatureSpecError(f"{clean(arg)}: expected an integer count, got {clean(x)!r}")
+    if n < minimum or n > MAX_COUNT:
+        raise FeatureSpecError(f"{clean(arg)}: count must be between {minimum} and {MAX_COUNT}, got {clean(x)!r}")
     return Value("count", str(n), float(n), None, arg)
 
 

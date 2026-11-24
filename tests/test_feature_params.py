@@ -65,3 +65,36 @@ def test_makers():
     assert p_ids("sketchPlane", ["JDC"])["queries"][0]["deterministicIds"] == ["JDC"]
     f = feature("extrude", "E", [q])
     assert f == {"btType": "BTMFeature-134", "featureType": "extrude", "name": "E", "suppressed": False, "parameters": [q]}
+
+
+def test_huge_values_name_the_arg():
+    with pytest.raises(FeatureSpecError, match="depth"):
+        length(10**400, "depth")
+    with pytest.raises(FeatureSpecError, match="angle"):
+        angle(10**400, "angle")
+    with pytest.raises(FeatureSpecError, match="count"):
+        count(10**400, "count")
+    with pytest.raises(FeatureSpecError, match="count"):
+        count("9" * 5000, "count")
+    with pytest.raises(FeatureSpecError, match="count"):
+        count(10001, "count")
+    assert count(10000, "count").literal == 10000.0
+
+
+def test_tiny_positive_rejected_when_rendering_to_zero():
+    with pytest.raises(FeatureSpecError, match="depth"):
+        length(1e-15, "depth")
+    with pytest.raises(FeatureSpecError, match="angle"):
+        angle(1e-15, "angle")
+    assert length(1e-15, "d", positive=False).expr == "0 mm"
+
+
+def test_messages_are_sanitised():
+    bad = "x\n" + "y" * 500
+    for fn, a in ((length, "depth"), (angle, "angle"), (count, "count")):
+        with pytest.raises(FeatureSpecError) as e:
+            fn(bad, a)
+        assert "\n" not in str(e.value) and len(str(e.value)) < 200
+    with pytest.raises(FeatureSpecError) as e:
+        length(bad, "a\nb" + "z" * 500)
+    assert "\n" not in str(e.value) and len(str(e.value)) < 300
