@@ -197,3 +197,12 @@ def test_pattern_mirror_dry_run(with_sketch):
     out = cad_mirror(ctx, REF, "Flip", ["Base"], "Top")
     assert out["applied"] is False and out["feature_type"] == "mirror"
     assert "features" in cad_mirror(ctx, REF, "F2", ["Zzz"], "Top")["error"]
+
+
+def test_hole_dry_run(with_sketch):
+    from onshape_duet.feature_tools import cad_hole
+    ctx, backend, _ = with_sketch
+    out = cad_hole(ctx, REF, "Hole1", "Base", ["p1"], 4)
+    assert out["applied"] is False and out["feature_type"] == "hole"
+    assert out["summary"]["points"] == ["p1"] and out["summary"]["diameter"] == "4 mm"
+    assert "points" in cad_hole(ctx, REF, "Hole2", "Base", ['x"'], 4)["error"]

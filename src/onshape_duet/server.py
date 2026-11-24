@@ -13,7 +13,7 @@ from .budget import Ledger
 from .cache import DocCache
 from .config import load_config
 from .docref import parse_url
-from .feature_tools import (cad_boolean, cad_shell, cad_chamfer, cad_extrude, cad_fillet, cad_find, cad_mirror,
+from .feature_tools import (cad_boolean, cad_shell, cad_chamfer, cad_extrude, cad_fillet, cad_find, cad_hole, cad_mirror,
                            cad_pattern, cad_plane, cad_revolve)
 from .tools import Context, cad_read, cad_sketch, cad_status, cad_variable
 
@@ -261,6 +261,25 @@ def build_server(ctx: Context) -> MCPServer:
         except ValueError as e:
             return {"applied": False, "error": str(e)}
         return cad_mirror(ctx, ref, name, features, plane, apply)
+
+    @mcp.tool(name="cad_hole")
+    def cad_hole_tool(url: str, name: str, sketch: str, points: list[str],
+                      diameter: StrictFloat | StrictInt | StrictStr,
+                      depth: StrictFloat | StrictInt | StrictStr | None = None,
+                      style: str = "simple", apply: StrictBool = False) -> dict:
+        """Drill simple holes at sketch points. sketch: name of an existing sketch. points: 1 to
+        50 sketch point ids in that sketch (like 'c1.center'). diameter: length number in mm,
+        '2 in' or '#variable'. depth: omit for a through hole, or give a length for a blind hole.
+        style: only 'simple' (counterbore and countersink are deferred). DRY RUN IS THE DEFAULT:
+        nothing is written unless apply=True. Show the dry-run result (summary, findings) to the
+        owner, then apply, and read afterwards. Read the document (cad_read) before apply; a
+        stale write is refused. Costs: a dry run is free once the document was read; apply costs
+        2 requests (version check + write), or 3 when the write reply names no new version."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_hole(ctx, ref, name, sketch, points, diameter, depth, style, apply)
 
     return mcp
 

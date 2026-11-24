@@ -396,3 +396,59 @@ def test_pattern_bad_features_list(fs):
 def test_pattern_features_deduplicated_in_order():
     b = build_mirror(PFL, features=["Boss", "Base", "Boss"], plane="Top")
     assert _by_id(b)["instanceFunction"]["featureIds"] == ["Fext", "Fabc"]
+
+
+# ---- cad_hole builder ----
+from onshape_duet.features.builders import build_hole  # noqa: E402
+
+
+def _loc(b):
+    return [q["queryString"] for q in _by_id(b)["locations"]["queries"]]
+
+
+def test_build_hole_through_matches_spec():
+    b = build_hole(FL, sketch="Base", points=["p1", "p2"], diameter=5)
+    assert_matches_spec(b.feature_json, "hole")
+    ps = _by_id(b)
+    for pid in ("holeDiameter", "holeDiameterV2", "holeDiameterV3"):
+        assert ps[pid]["expression"] == "5 mm"
+    assert ps["endStyle"]["value"] == "THROUGH" and ps["endStyleV2"]["value"] == "THROUGH"
+    assert ps["endStyle"]["enumName"] == "HoleEndStyle" and ps["endStyleV2"]["enumName"] == "HoleEndStyleV2"
+    assert "holeDepth" not in ps and "holeDepthV3" not in ps
+    assert ps["style"]["value"] == ps["styleV2"]["value"] == "SIMPLE"
+    assert ps["holeVersion"]["value"] == "V3" and ps["isV2"]["value"] is True
+    assert ps["unitsSystem"]["value"] == "METRIC" and ps["threadStandard"]["value"] == "UNSET"
+    assert ps["startStyle"]["value"] == "PART" and ps["oppositeDirection"]["value"] is False
+    assert _loc(b) == ['query=sketchEntityQuery(makeId("Fabc"), EntityType.VERTEX, "p1");',
+                       'query=sketchEntityQuery(makeId("Fabc"), EntityType.VERTEX, "p2");']
+    assert ps["scope"]["queries"][0]["queryString"] == "query=qAllModifiableSolidBodies();"
+    assert b.summary == {"sketch": "Base", "points": ["p1", "p2"], "diameter": "5 mm", "depth": None}
+    assert "Fabc" not in repr(b.summary)
+
+
+def test_hole_blind_sets_depth():
+    b = build_hole(FL, sketch="Base", points=["p1", "p1"], diameter="#d", depth="8 mm")
+    assert_matches_spec(b.feature_json, "hole")
+    ps = _by_id(b)
+    assert ps["endStyle"]["value"] == "BLIND" and ps["endStyleV2"]["value"] == "BLIND"
+    assert ps["holeDepth"]["expression"] == ps["holeDepthV3"]["expression"] == "8 mm"
+    assert ps["holeDiameterV3"]["expression"] == "#d"
+    assert len(_loc(b)) == 1 and b.summary["depth"] == "8 mm"
+
+
+@pytest.mark.parametrize("bad", ['p"); x(', "a b", "p\n1", "", 5, None, "a..b", "a;b"])
+def test_hole_point_id_rejects_quotes(bad):
+    with pytest.raises(FeatureSpecError, match="points"):
+        build_hole(FL, sketch="Base", points=["ok", bad], diameter=5)
+
+
+@pytest.mark.parametrize("pts", [[], "p1", None, ["p"] * 0, [f"p{i}" for i in range(51)]])
+def test_hole_points_shape_refused(pts):
+    with pytest.raises(FeatureSpecError, match="points"):
+        build_hole(FL, sketch="Base", points=pts, diameter=5)
+
+
+@pytest.mark.parametrize("style", ["counterbore", "countersink", "weird"])
+def test_hole_counterbore_refused_with_message(style):
+    with pytest.raises(FeatureSpecError, match="counterbore/countersink are deferred"):
+        build_hole(FL, sketch="Base", points=["p1"], diameter=5, style=style)

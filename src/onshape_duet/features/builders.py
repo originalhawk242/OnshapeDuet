@@ -104,17 +104,22 @@ def build_plane(fl: FeatureList, *, base: PlaneRef, offset, flip: bool = False) 
     return Built(feature("cPlane", "", params), [off], summary)
 
 
-_AXIS_ID = re.compile(r"[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*")
+_SKETCH_ENTITY_ID = re.compile(r"[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*")
+
+
+def _sketch_entity_id(arg: str, val, what: str) -> str:
+    """Caller text placed inside a query string: this check is the security boundary."""
+    if not isinstance(val, str) or not _SKETCH_ENTITY_ID.fullmatch(val):
+        raise FeatureSpecError(f"{arg}: expected {what} (letters, digits, underscore, "
+                               f"dot-separated), got {clean(val, 60)!r}")
+    return val
 
 
 def build_revolve(fl: FeatureList, *, sketch: str, axis: str, angle=360,
                   operation: str = "new", symmetric: bool = False, flip: bool = False) -> Built:
     op = _choice("operation", operation, tuple(_OPERATIONS))
     symmetric, flip = _flag("symmetric", symmetric), _flag("flip", flip)
-    # `axis` is caller text placed inside a query string: this check is the security boundary.
-    if not isinstance(axis, str) or not _AXIS_ID.fullmatch(axis):
-        raise FeatureSpecError(f"axis: expected a sketch line id like 'box.left' (letters, digits, "
-                               f"underscore, dot-separated), got {clean(axis, 60)!r}")
+    axis = _sketch_entity_id("axis", axis, "a sketch line id like 'box.left'")
     value = _angle(angle, "angle")
     full = value.literal == 360
     if full and symmetric:
@@ -260,3 +265,42 @@ def build_mirror(fl: FeatureList, *, features, plane: PlaneRef) -> Built:
               plane_param("mirrorPlane", plane, fl)]
     return Built(feature("mirror", "", params), [],
                  {"features": names, "plane": _clean_deep(plane)})
+
+
+# Hole: the live spec carries LEGACY, V2 and V3 variants of the same settings, and which ones the
+# current hole reads cannot be known offline. Every setting is therefore emitted in every variant
+# consistently; the Task 14 live run decides which can be dropped.
+def build_hole(fl: FeatureList, *, sketch: str, points, diameter, depth=None,
+               style: str = "simple") -> Built:
+    if style != "simple":
+        raise FeatureSpecError("style: only 'simple' holes are supported; counterbore/countersink "
+                               "are deferred")
+    if not isinstance(points, list) or not 1 <= len(points) <= 50:
+        raise FeatureSpecError("points: expected a list of 1 to 50 sketch point ids")
+    ids = list(dict.fromkeys(_sketch_entity_id("points", p, "a sketch point id like 'c1.center'")
+                             for p in points))
+    sk = resolve(fl, sketch, "sketch", {"newSketch"})
+    d = length(diameter, "diameter")
+    values = [d]
+    params = [p_enum("holeVersion", "HoleVersion", "V3"), p_bool("isV2", True),
+              p_enum("unitsSystem", "UnitsSystem", "METRIC"),
+              p_enum("threadStandard", "ThreadStandard", "UNSET"),
+              p_enum("style", "HoleStyle", "SIMPLE"), p_enum("styleV2", "HoleStyle", "SIMPLE"),
+              p_query("locations", [f'sketchEntityQuery(makeId("{sk.id}"), EntityType.VERTEX, "{pt}")'
+                                    for pt in ids]),
+              p_query("scope", ["qAllModifiableSolidBodies()"]),
+              p_qty("holeDiameter", d), p_qty("holeDiameterV2", d), p_qty("holeDiameterV3", d),
+              p_enum("startStyle", "HoleStartStyle", "PART")]
+    if depth is None:
+        params += [p_enum("endStyle", "HoleEndStyle", "THROUGH"),
+                   p_enum("endStyleV2", "HoleEndStyleV2", "THROUGH")]
+    else:
+        dep = length(depth, "depth")
+        values.append(dep)
+        params += [p_enum("endStyle", "HoleEndStyle", "BLIND"),
+                   p_enum("endStyleV2", "HoleEndStyleV2", "BLIND"),
+                   p_qty("holeDepth", dep), p_qty("holeDepthV3", dep)]
+    params.append(p_bool("oppositeDirection", False))
+    summary = {"sketch": clean(sketch, 100), "points": ids, "diameter": d.expr,
+               "depth": values[1].expr if depth is not None else None}
+    return Built(feature("hole", "", params), values, summary)

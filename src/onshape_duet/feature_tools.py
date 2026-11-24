@@ -6,7 +6,7 @@ from collections.abc import Callable
 from .backends.base import PostWriteError, StaleVersion
 from .docref import DocRef
 from .features.builders import (Built, build_boolean, build_chamfer, build_extrude, build_fillet,
-                                build_mirror, build_pattern, build_plane, build_revolve,
+                                build_hole, build_mirror, build_pattern, build_plane, build_revolve,
                                 build_shell)
 from .features.find import find_script, parse_find_result
 from .features.params import FeatureSpecError
@@ -154,3 +154,12 @@ def cad_mirror(ctx: Context, ref: DocRef, name: str, features, plane,
                apply: bool = False) -> dict:
     return run_feature(ctx, ref, name, lambda fl: build_mirror(fl, features=features, plane=plane),
                        apply, "the mirror")
+
+
+def cad_hole(ctx: Context, ref: DocRef, name: str, sketch: str, points, diameter, depth=None,
+             style: str = "simple", apply: bool = False) -> dict:
+    return run_feature(
+        ctx, ref, name,
+        lambda fl: build_hole(fl, sketch=sketch, points=points, diameter=diameter, depth=depth,
+                              style=style),
+        apply, "the hole")
