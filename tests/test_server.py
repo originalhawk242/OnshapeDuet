@@ -197,12 +197,12 @@ def test_dry_run_without_prior_read_costs_one_read_and_does_not_count_as_read(tm
     assert cad_variable(ctx, REF, "w", "1 mm", apply=True)["error"].startswith("read the document first")
 
 
-def test_apply_costs_only_the_write(tmp_path):
+def test_apply_costs_backstop_check_plus_write(tmp_path):
     ctx, backend, ledger = make(tmp_path)
     cad_read(ctx, REF)
     used = ledger.used
     out = cad_variable(ctx, REF, "w", "1 mm", apply=True)
-    assert out["applied"] is True and out["requests"] == 1 and ledger.used == used + 1
+    assert out["applied"] is True and out["requests"] == 2 and ledger.used == used + 2
 
 
 def test_variable_update_passes_existing_feature_id(tmp_path):
@@ -281,7 +281,7 @@ def test_concurrent_apply_and_read_keep_last_read_consistent(tmp_path):
     assert outs[0]["applied"] is True
     # whichever order they ran in, last_read must be the document's real version
     assert ctx.last_read[REF] == backend.get_microversion(REF)
-    assert outs[0]["requests"] == 1
+    assert outs[0]["requests"] == 2
 
 
 def test_server_tools_hold_the_context_lock(tmp_path):

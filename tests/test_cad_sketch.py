@@ -84,7 +84,7 @@ def test_response_reports_requests_and_budget_left(env):
     ctx.read(REF)
     before = ledger.used
     out = cad_sketch(ctx, REF, "S1", SPEC, apply=True)
-    assert out["requests"] == ledger.used - before == 1  # the write only
+    assert out["requests"] == ledger.used - before == 2  # backstop version check + the write
 
 
 def test_two_successive_applies_after_one_read(env):
@@ -302,3 +302,24 @@ def test_apply_ok_status_has_no_error_finding(env):
     assert out["status"] == "OK" and out["feature_id"] == "F1"
     assert not [f for f in out["findings"] if f["level"] == "error"]
     assert "warning" not in out
+
+
+def test_s1_sketch_with_variable_refuses_when_snapshot_not_at_last_read(env):
+    ctx, backend, _ = env
+    backend._doc(REF).variables["w"] = "50 mm"
+    ctx.read(REF)
+    ctx.cache.invalidate(REF)
+    spec = {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [50, 0]}],
+            "dimensions": [{"type": "length", "ref": "l", "value": "#w"}]}
+    out = cad_sketch(ctx, REF, "S", spec, apply=True)
+    assert out["applied"] is False and "stale" in out["error"]
+    assert backend.calls["add_feature"] == 0
+
+
+def test_s1_sketch_human_edit_after_read_refused_before_any_write(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    backend.simulate_human_edit(REF)
+    out = cad_sketch(ctx, REF, "S", SPEC, apply=True)
+    assert out["applied"] is False and "stale" in out["error"]
+    assert backend.calls["add_feature"] == 0

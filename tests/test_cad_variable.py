@@ -95,6 +95,7 @@ def test_second_apply_after_first_works(env):
     ctx, backend, _ = env
     ctx.read(REF)
     assert cad_variable(ctx, REF, "w", "1 mm", apply=True)["applied"] is True
+    ctx.read(REF)  # a newly created variable has an unknown feature id: the cache entry is dropped
     out = cad_variable(ctx, REF, "w", "2 mm", apply=True)
     assert out["applied"] is True and out["old"] == "1 mm"
     assert [(v.name, v.expression) for v in backend.get_variables(REF)] == [("w", "2 mm")]
@@ -126,3 +127,50 @@ def test_variable_post_write_failure_reports_unknown(tmp_path):
     assert "cad_read" in out["error"] and "may have landed" in out["error"]
     assert ctx.last_read[REF] == before
     assert ctx.cache.peek(REF) is None
+
+
+# --- S1: a write is decided on exactly the version it is pinned to ---
+
+def test_s1_update_then_update_again_needs_no_reread(env):
+    ctx, backend, _ = env
+    backend._doc(REF).variables["w"] = "10 mm"
+    ctx.read(REF)
+    assert cad_variable(ctx, REF, "w", "20 mm", apply=True)["applied"] is True
+    out = cad_variable(ctx, REF, "w", "30 mm", apply=True)  # spliced cache is at last_read
+    assert out["applied"] is True and out["old"] == "20 mm"
+
+
+def test_s1_human_edit_after_read_refused_with_zero_writes(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    backend.simulate_human_edit(REF)
+    out = cad_variable(ctx, REF, "w", "5 mm", apply=True)
+    assert out["applied"] is False and "stale" in out["error"]
+    assert backend.calls["set_variable"] == 0
+
+
+def test_s1_snapshot_version_differs_from_last_read_is_refused(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    ctx.last_read[REF] = "mv-older"  # cache holds a different version than the pin
+    out = cad_variable(ctx, REF, "w", "5 mm", apply=True)
+    assert out["applied"] is False and "stale" in out["error"]
+    assert backend.calls["set_variable"] == 0 and backend.calls["list_features"] == 1
+
+
+def test_s1_dropped_cache_entry_is_refused_not_refetched(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    ctx.cache.invalidate(REF)
+    before = backend.calls["list_features"]
+    out = cad_variable(ctx, REF, "w", "5 mm", apply=True)
+    assert out["applied"] is False and "stale" in out["error"]
+    assert backend.calls["list_features"] == before and backend.calls["set_variable"] == 0
+
+
+def test_s1_dry_run_fallback_never_advances_last_read(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    backend.simulate_human_edit(REF)
+    cad_variable(ctx, REF, "w", "5 mm")
+    assert ctx.last_read[REF] == "mv0"

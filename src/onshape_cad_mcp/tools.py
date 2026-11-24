@@ -29,7 +29,7 @@ from .sketch.solver import analyze
 from .sketch.spec import (SketchSpecError, evaluate_variables, parse_sketch_spec,
                           referenced_variables)
 from .textsafe import clean
-from .variables import find_variable, variables_from_features
+from .variables import find_variable, make_variable_feature, variables_from_features
 
 
 @dataclass
@@ -48,6 +48,17 @@ class Context:
         fl = self.cache.read(ref)
         self.last_read[ref] = fl.microversion
         return fl
+
+    def snapshot_for_apply(self, ref: DocRef) -> tuple[FeatureList, str]:
+        """The cached feature list at exactly last_read[ref], with no fetch.
+
+        A write is decided on, and pinned to, the same version: anything else
+        (no read, entry dropped or at another version) is stale."""
+        mv = self.last_read.get(ref)
+        fl = self.cache.peek(ref)
+        if mv is None or fl is None or fl.microversion != mv:
+            raise StaleVersion("no cached copy of the version last read")
+        return fl, mv
 
     def snapshot(self, ref: DocRef) -> tuple[FeatureList, str]:
         """(feature list, version it is based on) for dry runs and variable lookups.
@@ -116,6 +127,13 @@ def _reply(ctx: Context, start_used, applied: bool | str, **extra) -> dict:
             "requests": _spent(ctx, start_used), "budget_left": _ledger_numbers(ctx)[1]}
 
 
+def _backstop(ctx: Context, ref: DocRef, expected: str) -> None:
+    """Client-side check before every write (costs 1 request). Removable once
+    rejectMicroversionSkew is verified live (docs/live-checklist.md)."""
+    if ctx.backend.get_microversion(ref) != expected:
+        raise StaleVersion("document version differs from the version last read")
+
+
 @_locked
 def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = False) -> dict:
     start = _start(ctx)
@@ -126,12 +144,14 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
         wanted = referenced_variables(spec)
         variables: dict[str, float] = {}
         if wanted:  # no '#variable' reference: the document is not consulted at all
-            fl, based = ctx.snapshot(ref)
+            fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
             based_on = {"based_on_version": clean(based, 64)}
             variables = evaluate_variables(variables_from_features(fl), only=wanted)
         sketch = parse_sketch_spec(spec, variables)
         report = analyze(sketch)
         feature_json = to_feature_json(sketch, name)
+    except StaleVersion:
+        return _reply(ctx, start, False, error=_STALE)
     except (SketchSpecError, *_FAILURES) as e:
         return _reply(ctx, start, False, error=clean(e, 300))
 
@@ -149,6 +169,7 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
 
     try:
         expected = ctx.last_read[ref]
+        _backstop(ctx, ref, expected)
         result = ctx.backend.add_feature(ref, feature_json, expected_microversion=expected)
     except PostWriteError as e:
         return _unknown(ctx, start, ref, str(e), **extra)
@@ -189,7 +210,9 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     if apply and ref not in ctx.last_read:
         return _reply(ctx, start, False, error="read the document first (cad_read) before applying")
     try:
-        fl, based = ctx.snapshot(ref)
+        fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
+    except StaleVersion:
+        return _reply(ctx, start, False, error=_STALE)
     except _FAILURES as e:
         return _reply(ctx, start, False, error=clean(e, 300))
     current = {v.name: v.expression for v in variables_from_features(fl)}
@@ -201,8 +224,10 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
         return _reply(ctx, start, False, **extra)
 
     try:
+        expected = ctx.last_read[ref]
+        _backstop(ctx, ref, expected)
         new_mv = ctx.backend.set_variable(ref, name, expression,
-                                          expected_microversion=ctx.last_read[ref],
+                                          expected_microversion=expected,
                                           feature_id=existing.id if existing else None)
     except PostWriteError as e:
         return _unknown(ctx, start, ref, str(e), **extra)
@@ -213,7 +238,11 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     except _FAILURES as e:
         return _reply(ctx, start, False, error=clean(e, 300), **extra)
     ctx.last_read[ref] = new_mv
-    ctx.cache.note_write(ref, new_mv)  # no feature: cache drops the entry (intended)
+    # An updated variable keeps its feature id, so the cache can be spliced; a new
+    # one has an unknown id, so the entry is dropped (the next write needs cad_read).
+    ctx.cache.note_write(ref, new_mv,
+                         make_variable_feature(existing.id, name, expression) if existing else None,
+                         expected_microversion=expected)
     return _reply(ctx, start, True, **extra)
 
 

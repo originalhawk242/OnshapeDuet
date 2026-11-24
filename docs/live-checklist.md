@@ -21,6 +21,11 @@ that shows the real one. The shapes are isolated in `backends/onshape.py`,
    same id.** If not, the cache never hits (cad_read on an unchanged document would
    cost 2 requests instead of 1).
 
+   **Client-side backstop (S1).** Until this is verified, every write tool does one
+   `get_microversion` check against the last-read version before the POST (1 extra
+   request per apply; `_backstop` in `tools.py`). Remove it once the pinned write is
+   proven to be rejected live.
+
 ## Variables
 
 5. **Variable model.** Assign features probably keep the variable name in a string
@@ -54,5 +59,5 @@ that shows the real one. The shapes are isolated in `backends/onshape.py`,
 ## Request counts (record what actually happens)
 
 Expected: `cad_read` on a fresh document 2, unchanged 1; dry runs after a read 0 (a
-sketch dry run that references no `#variable` is always free); apply 1 (2 if the write
-reply lacks a new version).
+sketch dry run that references no `#variable` is always free); apply 2 with the backstop (version check + write; +1 if the
+write reply lacks a new version), 1 once the backstop is removed.
