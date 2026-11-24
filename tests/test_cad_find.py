@@ -84,3 +84,5 @@ def test_parse_find_result_real_fixture():
 def test_find_script_shape():
     s = find_script(EXPR, limit=5)
     assert EXPR in s and "evApproximateCentroid" in s and "millimeter" in s and "5" in s
+    assert s.startswith("function(context is Context, queries is map)")
+    assert "FeatureScript " not in s and "import(" not in s and "export" not in s

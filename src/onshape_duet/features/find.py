@@ -13,15 +13,13 @@ from __future__ import annotations
 from onshape_duet.textsafe import clean
 
 MAX_CENTROIDS = 20
-_LIB = 3132  # libraryVersion seen in the verified eval reply
 
 
 def find_script(expr: str, limit: int = MAX_CENTROIDS) -> str:
+    """An anonymous function, as in the live-verified probe (std is in scope)."""
     n = max(0, min(int(limit), MAX_CENTROIDS))
     return (
-        f'FeatureScript {_LIB};\n'
-        f'import(path : "onshape/std/geometry.fs", version : "{_LIB}.0");\n'
-        'export function main(context is Context, queries)\n'
+        'function(context is Context, queries is map)\n'
         '{\n'
         f'    var all = evaluateQuery(context, {expr});\n'
         '    var out = ["" ~ size(all)];\n'
