@@ -475,3 +475,23 @@ def test_every_row_jacobian_matches_finite_differences():
             e[i] = h
             num[i] = (r.fn(x + e) - r.fn(x - e)) / (2 * h)
         assert np.allclose(r.jac, num, atol=1e-4), r.label
+
+
+def _perp_pair(x0, length, deg):
+    import math
+    a = math.radians(deg)
+    return {"plane": "Front",
+            "entities": [{"id": "a", "type": "line", "start": [x0, 0], "end": [x0 + length, 0]},
+                         {"id": "b", "type": "line", "start": [x0, 0],
+                          "end": [x0 - length * math.sin(a), length * math.cos(a)]}],
+            "constraints": [{"type": "perpendicular", "refs": ["a", "b"]}], "dimensions": []}
+
+
+@pytest.mark.parametrize("x0,length", [(1e4, 10), (1e5, 10), (0, 2000), (0, 10)])
+def test_perpendicular_pair_two_degrees_off_is_a_conflict_wherever_it_is(x0, length):
+    assert run(_perp_pair(x0, length, 2)).conflicts
+
+
+@pytest.mark.parametrize("x0,length", [(1e4, 10), (1e5, 10), (0, 2000)])
+def test_exactly_perpendicular_pair_is_not_a_conflict(x0, length):
+    assert run(_perp_pair(x0, length, 0)).conflicts == []

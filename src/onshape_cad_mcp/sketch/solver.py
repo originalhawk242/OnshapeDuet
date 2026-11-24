@@ -17,11 +17,15 @@ from .spec import Sketch, SketchSpecError, resolve_ref
 
 TOL = 1e-9
 # Each residual row is compared to a tolerance built from the size of ITS OWN
-# entities, never one sketch-wide scale (a far-away point must not loosen the
-# check on a small line, and a tiny feature near the origin must not tighten it
-# to nothing):
-#   size = max(extent of the row's variables, |dimension value|)
-#   tol  = max(REL_TOL * size, FLOAT_EPS * magnitude, ABS_TOL)   (squared for quadratic rows)
+# entities (line length, circle diameter, the distance a dimension spans), never
+# from coordinate extents or one sketch-wide scale: a far-away point must not loosen
+# the check on a small line, a small feature far from the origin must not be judged
+# by its distance from the origin, and a tiny feature near the origin must not be
+# tightened to nothing:
+#   tol = max(REL_TOL * size, FLOAT_EPS * magnitude, ABS_TOL)
+#   quadratic rows (products of two direction vectors): REL_TOL * size**2,
+#   FLOAT_EPS * magnitude * size, ABS_TOL**2
+# magnitude is the largest |coordinate| the row touches (float-noise floor).
 # REL_TOL = 1e-6 of size is far above float noise yet far below any real design
 # error (1 micron on 1 m); FLOAT_EPS * magnitude is the noise floor of the
 # coordinates themselves; ABS_TOL (1 nanometre) is the floor near zero.
@@ -88,18 +92,17 @@ class Row:
     fn: Callable[[np.ndarray], float]  # residual as a function of the variable vector
     degree: int  # 1 linear, 2 quadratic (scales with length squared)
     value: float = 0.0  # driving value of a dimension row (millimetres)
+    size: float = 0.0  # size of the entities the row relates (millimetres)
 
 
 def row_tolerance(row: Row, x: np.ndarray) -> float:
     idx = np.flatnonzero(row.jac)
     vals = x[idx] if idx.size else np.zeros(0)
-    extent = float(vals.max() - vals.min()) if vals.size else 0.0
-    magnitude = float(np.abs(vals).max()) if vals.size else 0.0
-    size = max(extent, abs(row.value))
-    magnitude = max(magnitude, abs(row.value))
+    magnitude = max(float(np.abs(vals).max()) if vals.size else 0.0, abs(row.value))
+    size = max(row.size, abs(row.value))
     if row.degree == 1:
         return max(REL_TOL * size, FLOAT_EPS * magnitude, ABS_TOL)
-    return max(REL_TOL * size ** 2, FLOAT_EPS * magnitude ** 2, ABS_TOL ** 2)
+    return max(REL_TOL * size ** 2, FLOAT_EPS * magnitude * size, ABS_TOL ** 2)
 
 
 def _skipped(sketch: Sketch, refs) -> bool:
@@ -116,8 +119,23 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
     n = len(x)
     rows: list[Row] = []
 
-    def emit(label, jac, fn, degree=1, value=0.0):
-        rows.append(Row(label, jac, fn, degree, value))
+    def emit(label, jac, fn, degree=1, value=0.0, size=0.0):
+        rows.append(Row(label, jac, fn, degree, value, size))
+
+    def esize(refs) -> float:
+        """Largest own size (line length, circle diameter) among the referenced entities."""
+        best = 0.0
+        for r in refs:
+            eid, _ = resolve_ref(sketch, r, "ref")
+            ent = sketch.entities.get(eid)
+            if ent is None:
+                continue
+            if ent.type == "line":
+                best = max(best, float(np.hypot(ent.coords[2] - ent.coords[0],
+                                                ent.coords[3] - ent.coords[1])))
+            elif ent.type == "circle":
+                best = max(best, 2.0 * ent.coords[2])
+        return best
 
     def unit(*terms):
         r = np.zeros(n)
@@ -140,7 +158,8 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
             nrefs(c.refs, 2, what)
             pa, pb = lay.point(c.refs[0], what), lay.point(c.refs[1], what)
             for a, b in zip(pa, pb):
-                emit(what, unit((a, 1), (b, -1)), lambda v, a=a, b=b: v[a] - v[b])
+                emit(what, unit((a, 1), (b, -1)), lambda v, a=a, b=b: v[a] - v[b],
+                     size=esize(c.refs))
         elif c.type in ("horizontal", "vertical"):
             k = 1 if c.type == "horizontal" else 0
             if len(c.refs) == 1:
@@ -150,7 +169,8 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
                 nrefs(c.refs, 2, what)
                 a = lay.point(c.refs[0], what)[k]
                 b = lay.point(c.refs[1], what)[k]
-            emit(what, unit((a, 1), (b, -1)), lambda v, a=a, b=b: v[a] - v[b])
+            emit(what, unit((a, 1), (b, -1)), lambda v, a=a, b=b: v[a] - v[b],
+                 size=esize(c.refs))
         elif c.type in ("parallel", "perpendicular"):
             nrefs(c.refs, 2, what)
             o1, o2 = lay.line(c.refs[0], what), lay.line(c.refs[1], what)
@@ -170,7 +190,7 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
                 def fn(v, o1=o1, o2=o2):
                     return ((v[o1 + 2] - v[o1]) * (v[o2 + 2] - v[o2])
                             + (v[o1 + 3] - v[o1 + 1]) * (v[o2 + 3] - v[o2 + 1]))
-            emit(what, jac, fn, 2)
+            emit(what, jac, fn, 2, size=esize(c.refs))
         elif c.type == "equal":
             nrefs(c.refs, 2, what)
             (e1, o1), (e2, o2) = lay.entity(c.refs[0], what), lay.entity(c.refs[1], what)
@@ -184,9 +204,10 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
                 def fn(v, o1=o1, o2=o2):
                     return (((v[o1 + 2] - v[o1]) ** 2 + (v[o1 + 3] - v[o1 + 1]) ** 2)
                             - ((v[o2 + 2] - v[o2]) ** 2 + (v[o2 + 3] - v[o2 + 1]) ** 2))
-                emit(what, unit(*terms), fn, 2)
+                emit(what, unit(*terms), fn, 2, size=esize(c.refs))
             elif e1.type == "circle" and e2.type == "circle":
-                emit(what, unit((o1 + 2, 1), (o2 + 2, -1)), lambda v, a=o1 + 2, b=o2 + 2: v[a] - v[b])
+                emit(what, unit((o1 + 2, 1), (o2 + 2, -1)), lambda v, a=o1 + 2, b=o2 + 2: v[a] - v[b],
+                     size=esize(c.refs))
             else:
                 raise SketchSpecError(
                     f"{what}: equal needs two lines or two circles, got {e1.type} and {e2.type}")
@@ -210,13 +231,13 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
             ux, uy = dx / length, dy / length
             emit(what, unit((o + 2, ux), (o, -ux), (o + 3, uy), (o + 1, -uy)),
                  lambda v, o=o, val=val: float(np.hypot(v[o + 2] - v[o], v[o + 3] - v[o + 1])) - val,
-                 value=val)
+                 value=val, size=length)
         elif d.type == "diameter":
             nrefs(d.refs, 1, what)
             ent, o = lay.entity(d.refs[0], what)
             if ent.type != "circle":
                 raise SketchSpecError(f"{what}: {d.refs[0]!r} is not a circle")
-            emit(what, unit((o + 2, 2.0)), lambda v, o=o, val=val: 2.0 * v[o + 2] - val, value=val)
+            emit(what, unit((o + 2, 2.0)), lambda v, o=o, val=val: 2.0 * v[o + 2] - val, value=val, size=val)
         else:  # distance_h / distance_v
             # Onshape's distance is unsigned: residual |delta| - val, with the
             # Jacobian sign taken from the nominal sign of delta.
@@ -231,7 +252,7 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
             terms = [(a, sgn)] + ([(b, -sgn)] if b is not None else [])
             emit(what, unit(*terms),
                  lambda v, a=a, b=b, val=val: abs(v[a] - (v[b] if b is not None else 0.0)) - val,
-                 value=val)
+                 value=val, size=max(esize(d.refs), abs(x[a] - (x[b] if b is not None else 0.0))))
     return rows, lay
 
 
