@@ -173,7 +173,8 @@ def test_redirect_without_location_raises(tmp_path):
 
 def test_redirect_on_write_raises(tmp_path):
     b, ledger = make(tmp_path, lambda r: httpx.Response(307, headers={"Location": "/api/x"}))
-    with pytest.raises(RuntimeError, match="POST"):
+    from onshape_cad_mcp.backends.base import PostWriteError
+    with pytest.raises(PostWriteError, match="POST"):
         b.add_feature(REF, {"type": "x"}, "mv1")
     assert ledger.used == 1
 
@@ -228,7 +229,7 @@ def test_set_variable_costs_only_the_post(tmp_path):
         methods.append(req.method)
         return httpx.Response(200, json={"sourceMicroversion": "mv2"})
     b, ledger = make(tmp_path, handler)
-    assert b.set_variable(REF, "w", "1 mm", "mv1") == "mv2"
+    assert b.set_variable(REF, "w", "1 mm", "mv1").microversion == "mv2"
     assert methods == ["POST"] and ledger.used == 1
 
 
@@ -248,7 +249,7 @@ def test_set_variable_create_vs_update_path(tmp_path):
         posts.append(req.url.path)
         return httpx.Response(200, json={"sourceMicroversion": "mv9"})
     b, _ = make(tmp_path, handler)
-    assert b.set_variable(REF, "w", "1 mm", "mv1") == "mv9"
+    assert b.set_variable(REF, "w", "1 mm", "mv1").microversion == "mv9"
     b.set_variable(REF, "w", "2 mm", "mv1", feature_id="FabC_12")
     assert posts[0].endswith("/features")
     assert posts[1].endswith("/features/featureid/FabC_12")
@@ -323,7 +324,7 @@ def test_post_transport_error_is_post_write_error(tmp_path):
     def handler(req):
         raise httpx.ReadTimeout("slow")
     b, _ = make(tmp_path, handler)
-    with pytest.raises(PostWriteError, match="may have landed"):
+    with pytest.raises(PostWriteError, match="transport error"):
         b.add_feature(REF, {"type": "x"}, "mv1")
 
 
@@ -437,3 +438,25 @@ def test_malformed_feature_list_is_wrapped(tmp_path, body):
     b, _ = make(tmp_path, lambda r: httpx.Response(200, json=body))
     with pytest.raises(RuntimeError, match="unexpected Onshape response"):
         b.list_features(REF)
+
+
+def test_write_result_is_exact_only_when_the_reply_names_a_new_version(tmp_path):
+    b, _, _ = _post_capture(tmp_path, ADD_REPLY)
+    assert b.add_feature(REF, {"type": "x"}, "mv1").exact is True
+    b, _, _ = _post_capture(tmp_path, {**ADD_REPLY, "sourceMicroversion": "mv1"})
+    assert b.add_feature(REF, {"type": "x"}, "mv1").exact is False
+    missing = {k: v for k, v in ADD_REPLY.items() if k != "sourceMicroversion"}
+    b, _, _ = _post_capture(tmp_path, missing)
+    assert b.add_feature(REF, {"type": "x"}, "mv1").exact is False
+    b, _, _ = _post_capture(tmp_path, {})
+    assert b.set_variable(REF, "w", "1 mm", "mv1").exact is False
+    b, _, _ = _post_capture(tmp_path, {"sourceMicroversion": "mv2"})
+    assert b.set_variable(REF, "w", "1 mm", "mv1").exact is True
+
+
+@pytest.mark.parametrize("status", [304, 300])
+def test_non_redirect_3xx_is_not_followed_on_get(tmp_path, status):
+    b, ledger = make(tmp_path, lambda r: httpx.Response(status, headers={"Location": "/api/x"}))
+    with pytest.raises(RuntimeError):
+        b.get_microversion(REF)
+    assert ledger.used == 1  # no second hop

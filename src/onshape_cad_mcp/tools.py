@@ -40,6 +40,8 @@ class Context:
     config: Config
     last_read: dict[DocRef, str] = field(default_factory=dict)
     config_path: Path | None = None
+    # Why the next write needs a fresh cad_read (cleared by `read`).
+    reread: dict[DocRef, str] = field(default_factory=dict)
     # MCP runs sync tools in worker threads; one RLock serialises every tool body
     # (last_read, DocCache and the ledger-delta request counts are shared state).
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
@@ -47,7 +49,15 @@ class Context:
     def read(self, ref: DocRef) -> FeatureList:
         fl = self.cache.read(ref)
         self.last_read[ref] = fl.microversion
+        self.reread.pop(ref, None)
         return fl
+
+    def lose_track(self, ref: DocRef, why: str) -> None:
+        """After a landed write whose new version Claude has not actually read:
+        forget what was read, so the next write demands a fresh cad_read."""
+        self.cache.invalidate(ref)
+        self.last_read.pop(ref, None)
+        self.reread[ref] = why
 
     def snapshot_for_apply(self, ref: DocRef) -> tuple[FeatureList, str]:
         """The cached feature list at exactly last_read[ref], with no fetch.
@@ -74,6 +84,13 @@ class Context:
                 return fl, mv
         fl = self.cache.read(ref)
         return fl, fl.microversion
+
+
+_NO_READ = "read the document first (cad_read) before applying"
+_REFETCHED = ("the write landed, but its new version was fetched separately and may include "
+              "edits you have not read; re-read with cad_read before the next write")
+_NEW_VARIABLE = ("re-read with cad_read before the next write: a variable was just created, "
+                 "so the cached feature list no longer matches the document")
 
 
 def _locked(fn):
@@ -138,7 +155,7 @@ def _backstop(ctx: Context, ref: DocRef, expected: str) -> None:
 def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = False) -> dict:
     start = _start(ctx)
     if apply and ref not in ctx.last_read:
-        return _reply(ctx, start, False, error="read the document first (cad_read) before applying")
+        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
     based_on: dict = {}
     try:
         wanted = referenced_variables(spec)
@@ -151,7 +168,7 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
         report = analyze(sketch)
         feature_json = to_feature_json(sketch, name)
     except StaleVersion:
-        return _reply(ctx, start, False, error=_STALE)
+        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _STALE)
     except (SketchSpecError, *_FAILURES) as e:
         return _reply(ctx, start, False, error=clean(e, 300))
 
@@ -181,9 +198,14 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
         return _reply(ctx, start, False, error=clean(e, 300), **extra)
     # note_write splices our feature into the cached list; that is only sound
     # because every write passes expected_microversion (nothing else changed).
-    ctx.last_read[ref] = result.microversion
-    ctx.cache.note_write(ref, result.microversion, result.feature,
-                         expected_microversion=expected)
+    if result.exact:
+        ctx.last_read[ref] = result.microversion
+        ctx.cache.note_write(ref, result.microversion, result.feature,
+                             expected_microversion=expected)
+        extra = dict(extra)
+    else:
+        ctx.lose_track(ref, _REFETCHED)
+        extra = {**extra, "note": _REFETCHED}
     status = clean(result.feature.status, 40)
     done = {**extra, "feature_id": clean(result.feature.id, 64), "status": status}
     if status != "OK":
@@ -208,11 +230,11 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
                       error=f"invalid expression: must be non-empty, at most {_MAX_EXPR} "
                             "characters, with no newlines or control characters")
     if apply and ref not in ctx.last_read:
-        return _reply(ctx, start, False, error="read the document first (cad_read) before applying")
+        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
     try:
         fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
     except StaleVersion:
-        return _reply(ctx, start, False, error=_STALE)
+        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _STALE)
     except _FAILURES as e:
         return _reply(ctx, start, False, error=clean(e, 300))
     current = {v.name: v.expression for v in variables_from_features(fl)}
@@ -226,7 +248,7 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     try:
         expected = ctx.last_read[ref]
         _backstop(ctx, ref, expected)
-        new_mv = ctx.backend.set_variable(ref, name, expression,
+        result = ctx.backend.set_variable(ref, name, expression,
                                           expected_microversion=expected,
                                           feature_id=existing.id if existing else None)
     except PostWriteError as e:
@@ -237,12 +259,19 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
         return _reply(ctx, start, False, error=_STALE, **extra)
     except _FAILURES as e:
         return _reply(ctx, start, False, error=clean(e, 300), **extra)
+    if not result.exact:
+        ctx.lose_track(ref, _REFETCHED)
+        return _reply(ctx, start, True, **extra, note=_REFETCHED)
+    new_mv = result.microversion
     ctx.last_read[ref] = new_mv
     # An updated variable keeps its feature id, so the cache can be spliced; a new
     # one has an unknown id, so the entry is dropped (the next write needs cad_read).
     ctx.cache.note_write(ref, new_mv,
                          make_variable_feature(existing.id, name, expression) if existing else None,
                          expected_microversion=expected)
+    if existing is None:
+        ctx.reread[ref] = _NEW_VARIABLE
+        extra["note"] = _NEW_VARIABLE
     return _reply(ctx, start, True, **extra)
 
 

@@ -36,8 +36,10 @@ class Backend(Protocol):
         ...
 
     def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,
-                     feature_id: str | None = None) -> str:
-        """Returns the new microversion. Raises StaleVersion if stale.
+                     feature_id: str | None = None) -> WriteResult:
+        """Returns a WriteResult: the variable feature (id, regeneration status;
+        "" when the backend did not report them) and the new microversion.
+        Raises StaleVersion if stale.
 
         feature_id is the existing variable's feature (from the last-read feature
         list) to update in place; None creates a new variable."""

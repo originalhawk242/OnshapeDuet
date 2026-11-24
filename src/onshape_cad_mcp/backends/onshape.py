@@ -15,7 +15,7 @@ import re
 import secrets
 import string
 from email.utils import formatdate
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 
@@ -56,6 +56,7 @@ def microversion_path(ref: DocRef) -> str:
 SERIALIZATION_VERSION = "1.1.23"
 STALE_STATUSES = (409, 412)
 MAX_REDIRECTS = 5
+REDIRECT_STATUSES = (301, 302, 303, 307, 308)  # 304 etc. are not redirects
 JSON = "application/json"
 
 
@@ -139,9 +140,13 @@ class OnshapeBackend:
             url = path + (f"?{query}" if query else "")
             resp = self._client.request(method, url, headers=headers,
                                         json=body if body is not None else None)
-            if 300 <= resp.status_code < 400:
+            if resp.status_code in REDIRECT_STATUSES:
                 if method != "GET":
-                    raise RuntimeError(f"refusing redirect on {method} (write not replayed)")
+                    # The POST was sent and the server answered with a redirect: the
+                    # write may have been applied, so the outcome is unknown.
+                    raise PostWriteError(
+                        f"HTTP {resp.status_code} redirect in reply to a {method} "
+                        "(write not replayed)")
                 if "location" not in resp.headers:
                     raise RuntimeError(f"unexpected Onshape response: HTTP {resp.status_code} without Location")
                 loc = urlsplit(resp.headers["location"])
@@ -149,7 +154,10 @@ class OnshapeBackend:
                     raise RuntimeError("refusing redirect with different scheme")
                 if loc.netloc and loc.netloc != base_host:
                     raise RuntimeError("refusing redirect to other host")
-                if not loc.path.startswith("/api/") or ".." in loc.path.split("/"):
+                if "%" in loc.path or "\\" in loc.path:
+                    raise RuntimeError("refusing redirect with an encoded or odd path")
+                if (not loc.path.startswith("/api/")
+                        or ".." in unquote(loc.path).split("/")):
                     raise RuntimeError("refusing redirect outside /api/")
                 path, query = loc.path, loc.query
                 continue
@@ -182,8 +190,7 @@ class OnshapeBackend:
         try:
             resp = self._request("POST", path, body=body)
         except httpx.HTTPError as e:
-            raise PostWriteError(
-                f"transport error during write ({type(e).__name__}); the write may have landed") from e
+            raise PostWriteError(f"transport error during write ({type(e).__name__})") from e
         if resp.status_code in STALE_STATUSES:
             raise StaleVersion(f"document changed (HTTP {resp.status_code})")
         if 400 <= resp.status_code < 500:
@@ -191,26 +198,30 @@ class OnshapeBackend:
         try:
             data = self._ok(resp)
         except RuntimeError as e:
-            raise PostWriteError(f"unusable reply to a write ({e}); the write may have landed") from e
+            raise PostWriteError(f"unusable reply to a write ({e})") from e
         if data.get("microversionSkew") is True:
             raise StaleVersion(
                 "Onshape reports the write was applied against a newer version "
-                "(microversionSkew); it may have landed. Re-read (cad_read) before retrying",
+                "(microversionSkew)",
                 may_have_landed=True)
         return data
 
-    def _new_microversion(self, ref: DocRef, data: dict, expected_microversion: str) -> str:
-        """Microversion after a landed write; any failure here is PostWriteError."""
+    def _new_microversion(self, ref: DocRef, data: dict, expected_microversion: str) -> tuple[str, bool]:
+        """(microversion after a landed write, exact).
+
+        exact is True only when the write reply itself named a version different
+        from the request's. Otherwise the version comes from a SEPARATE GET, so a
+        human edit between the POST and the GET would be adopted unseen: the
+        caller must treat that version as not read. Any failure is PostWriteError."""
         mv = data.get("sourceMicroversion")
         try:
             if isinstance(mv, str) and mv and mv != expected_microversion:
-                return mv
+                return mv, True
             # missing, or an echo of the request version (a landed write changes it)
-            return self.get_microversion(ref)
+            return self.get_microversion(ref), False
         except (BudgetExceeded, RuntimeError, httpx.HTTPError) as e:
             raise PostWriteError(
-                f"the write succeeded but reading the new version failed ({e}); "
-                "the write landed") from e
+                f"the write succeeded but reading the new version failed ({e}); the write landed") from e
 
     def get_microversion(self, ref: DocRef) -> str:
         mv = self._ok(self._request("GET", microversion_path(ref))).get("microversionId")
@@ -238,17 +249,17 @@ class OnshapeBackend:
         raw = data.get("feature")
         if not isinstance(raw, dict) or not raw.get("featureId"):
             raise PostWriteError(
-                "unexpected Onshape response: add_feature reply missing feature/featureId; "
-                "the write may have landed")
+                "unexpected Onshape response: add_feature reply missing feature/featureId")
         try:
             st = {raw["featureId"]: data.get("featureState") or {}}
             feat = _parse_feature(raw, st)
         except RuntimeError as e:
-            raise PostWriteError(f"{e}; the write may have landed") from e
-        return WriteResult(feat, self._new_microversion(ref, data, expected_microversion))
+            raise PostWriteError(str(e)) from e
+        mv, exact = self._new_microversion(ref, data, expected_microversion)
+        return WriteResult(feat, mv, exact)
 
     def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,
-                     feature_id: str | None = None) -> str:
+                     feature_id: str | None = None) -> WriteResult:
         # TODO(Task 12): variable feature JSON and update endpoint are unverified.
         if feature_id is not None and not _FEATURE_ID.fullmatch(feature_id):
             raise RuntimeError("unexpected Onshape response: bad featureId on existing variable")
@@ -262,4 +273,24 @@ class OnshapeBackend:
         body = {"feature": feature, "serializationVersion": SERIALIZATION_VERSION}
         path = features_path(ref) if feature_id is None else feature_update_path(ref, feature_id)
         resp = self._write(path, body, expected_microversion)
-        return self._new_microversion(ref, resp, expected_microversion)
+        feat = self._variable_feature(resp, feature_id, name, expression)
+        mv, exact = self._new_microversion(ref, resp, expected_microversion)
+        return WriteResult(feat, mv, exact)
+
+    @staticmethod
+    def _variable_feature(resp: dict, feature_id: str | None, name: str, expression: str) -> Feature:
+        """The variable feature the write reply describes (id and regeneration
+        status); when the reply carries none, the id is the one that was updated
+        (or "" for a new variable) and the status is "" (not reported)."""
+        raw = resp.get("feature")
+        if isinstance(raw, dict) and isinstance(raw.get("featureId"), str) \
+                and _FEATURE_ID.fullmatch(raw["featureId"]):
+            try:
+                parsed = _parse_feature(raw, {raw["featureId"]: resp.get("featureState") or {}})
+                if isinstance(resp.get("featureState"), dict):
+                    return parsed
+                return Feature(parsed.id, parsed.type, parsed.name, "", parsed.params)
+            except RuntimeError:
+                pass
+        return Feature(feature_id or "", VARIABLE_FEATURE_TYPE, VARIABLE_NAME_PREFIX + name, "",
+                       {VARIABLE_EXPR_PARAM: expression})

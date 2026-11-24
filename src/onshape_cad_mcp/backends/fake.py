@@ -1,6 +1,7 @@
 """In-memory backend for tests."""
 from __future__ import annotations
 
+import copy
 from collections import Counter
 from collections.abc import MutableMapping
 
@@ -110,10 +111,11 @@ class FakeBackend:
         return WriteResult(feat, self._mv(d))
 
     def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str,
-                     feature_id: str | None = None) -> str:
+                     feature_id: str | None = None) -> WriteResult:
         self._enter("set_variable")
         d = self._doc(ref)
         self._check(d, expected_microversion)
         d.variables[name] = expression
         d.version += 1
-        return self._mv(d)
+        feat = copy.deepcopy(find_variable(FeatureList("", d.features), name))
+        return WriteResult(feat, self._mv(d))
