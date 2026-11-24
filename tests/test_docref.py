@@ -9,8 +9,9 @@ def test_parse_url():
     assert parse_url(f"https://cad.onshape.com/documents/{D}/w/{W}/e/{E}") == DocRef(D, W, E)
 
 
-def test_parse_version_url():
-    assert parse_url(f"https://cad.onshape.com/documents/{D}/v/{W}/e/{E}") == DocRef(D, W, E)
+def test_version_url_rejected_clearly():
+    with pytest.raises(ValueError, match="version URLs"):
+        parse_url(f"https://cad.onshape.com/documents/{D}/v/{W}/e/{E}")
 
 
 def test_parse_bad_url_raises():

@@ -12,6 +12,7 @@ def is_valid_id(value: object) -> bool:
 
 
 _RE = re.compile(r"^https?://[^/]*onshape\.com/documents/([^/]+)/(?:w|v)/([^/]+)/e/([^/?#]+)")
+_VERSION_RE = re.compile(r"^https?://[^/]*onshape\.com/documents/[^/]+/v/")
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,12 @@ class DocRef:
 
 
 def parse_url(url: str) -> DocRef:
-    m = _RE.match(url.strip())
+    url = url.strip()
+    if _VERSION_RE.match(url):
+        raise ValueError("version URLs (/v/) are not supported yet: open the workspace "
+                         "(/w/) URL of the Part Studio instead")
+    m = _RE.match(url)
     if not m:
-        raise ValueError(f"not an Onshape document URL: {url!r}")
+        raise ValueError(f"not an Onshape document URL (expected "
+                         f"https://cad.onshape.com/documents/<id>/w/<id>/e/<id>): {url!r}")
     return DocRef(*m.groups())

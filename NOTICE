@@ -1,4 +1,4 @@
-onshape-cad-mcp third-party notices (none yet; all code is original, MIT-licensed).
+onshape-cad-mcp third-party notices.
 
 Sketch constraint and dimension JSON shapes in src/onshape_cad_mcp/sketch/serialize.py
 (BTMSketchConstraint-2 parameter layouts, DISTANCE/LENGTH/DIAMETER dimension shapes,

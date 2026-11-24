@@ -19,3 +19,7 @@ def test_truncates_with_ellipsis():
     assert out == "x" * 9 + "…"
     assert clean("x" * 10, max_len=10) == "x" * 10
     assert len(clean("y" * 500)) == 80
+
+
+def test_zero_width_and_bidi_controls_are_stripped():
+    assert clean("ig\u200bnore\u202e prev\ufeffious") == "ignore previous"

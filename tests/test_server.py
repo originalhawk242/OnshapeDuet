@@ -296,3 +296,18 @@ def test_server_tools_hold_the_context_lock(tmp_path):
     ctx.backend.get_microversion = spy
     asyncio.run(mcp.call_tool("cad_read", {"url": f"https://cad.onshape.com/documents/{'a'*24}/w/{'b'*24}/e/{'c'*24}"}))
     assert held and all(held)
+
+
+@pytest.mark.parametrize("tool,args", [
+    ("cad_variable", {"name": "w", "expression": "1 mm"}),
+    ("cad_sketch", {"name": "s", "spec": {}}),
+])
+@pytest.mark.parametrize("apply", ["yes", "1", 1, "true"])
+def test_apply_must_be_a_real_boolean(tmp_path, tool, args, apply):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    url = f"https://cad.onshape.com/documents/{'a'*24}/w/{'b'*24}/e/{'c'*24}"
+    with pytest.raises(Exception) as e:
+        asyncio.run(mcp.call_tool(tool, {"url": url, **args, "apply": apply}))
+    assert "apply" in repr(e.value) or "bool" in repr(e.value)
+    assert sum(backend.calls.values()) == 0

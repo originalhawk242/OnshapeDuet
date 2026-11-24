@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
+from pydantic import StrictBool
 
 from .backends.onshape import OnshapeBackend
 from .budget import Ledger
@@ -46,7 +47,7 @@ def build_server(ctx: Context) -> MCPServer:
         return cad_read(ctx, ref)
 
     @mcp.tool(name="cad_sketch")
-    def cad_sketch_tool(url: str, name: str, spec: dict, apply: bool = False) -> dict:
+    def cad_sketch_tool(url: str, name: str, spec: dict, apply: StrictBool = False) -> dict:
         """Create a sketch from a spec. DRY RUN IS THE DEFAULT: nothing is written
         unless apply=True. Show the dry-run result (dof, findings) to the owner,
         then apply, and read afterwards. Read the document (cad_read) before apply.
@@ -59,7 +60,7 @@ def build_server(ctx: Context) -> MCPServer:
         return cad_sketch(ctx, ref, name, spec, apply)
 
     @mcp.tool(name="cad_variable")
-    def cad_variable_tool(url: str, name: str, expression: str, apply: bool = False) -> dict:
+    def cad_variable_tool(url: str, name: str, expression: str, apply: StrictBool = False) -> dict:
         """Create or update a Part Studio variable (name ^[a-z][a-z0-9_]*$,
         expression e.g. "10 mm"). DRY RUN IS THE DEFAULT: nothing is written unless
         apply=True. Read the document (cad_read) before apply; stale writes are refused."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,17 @@ def load_config(path: Path | None) -> Config:
     b = data.get("budget", 0)
     if type(b) is not int or b < 0:
         raise ValueError(f"config key `budget` in {path} must be an integer >= 0, got {b!r}")
-    kwargs = {k: data[k] for k in ("budget", "key_env", "secret_env", "base_url") if k in data}
+    for key in ("key_env", "secret_env", "ledger_path", "base_url"):
+        if key in data and (not isinstance(data[key], str) or not data[key].strip()):
+            raise ValueError(f"config key `{key}` in {path} must be a non-empty string, got {data[key]!r}")
+    if "base_url" in data:
+        u = urlsplit(data["base_url"])
+        if u.scheme != "https" or not u.netloc or u.path not in ("", "/") or u.query or u.fragment:
+            raise ValueError(f"config key `base_url` in {path} must be an https URL with no path "
+                             f"(e.g. https://cad.onshape.com), got {data['base_url']!r}")
+    kwargs = {k: data[k] for k in ("budget", "key_env", "secret_env") if k in data}
+    if "base_url" in data:
+        kwargs["base_url"] = data["base_url"].rstrip("/")
     if "ledger_path" in data:
         kwargs["ledger_path"] = Path(data["ledger_path"]).expanduser()
     return Config(**kwargs)
