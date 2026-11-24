@@ -11,15 +11,15 @@ Workflow: `cad_status` -> `cad_read` -> dry run -> show the owner -> apply -> `c
 If a write reply says `applied: "unknown"`, or carries a `note` telling you to re-read (for example after creating a variable), run `cad_read` before anything else: the write may have landed, and the next write is refused until you do. A `REGEN_STATUS` error finding means Onshape wrote the feature but it does not regenerate cleanly.
 
 ## Generic features
-Typed tools first. Use the generic tools for native feature types that have no typed tool, for options a typed tool lacks, and for editing features a human made.
+Typed tools first where one exists. Use the generic tools for native feature types that have no typed tool, for options a typed tool lacks, and for editing features a human made.
 `cad_sketch` and `cad_variable` stay the only way to write sketches and variables: the generic tools refuse them (`TYPED_TOOL_REQUIRED`).
 
 Workflow: `cad_read` -> `cad_specs` -> `cad_feature_add` / `cad_feature_update` dry run -> show the owner -> apply -> `cad_read`.
 
 - `cad_specs(url)` lists native feature types. `cad_specs(url, "extrude")` lists that type's parameters: id, kind, unit or enum options, default, and whether it is shown only under a condition. Cost: 1 request the first time per document in this process, then 0. A custom FeatureScript feature has no spec and cannot be added or updated here.
 - `cad_inspect(url, feature)` shows every parameter of one feature, by name or id. 0 requests after a `cad_read`. Geometry picks show as a query string or `N geometry ids (set in Onshape)`; only Onshape can change those.
-- `cad_feature_add(url, feature_type, name, params)`: parameters you omit take Onshape's defaults; the dry run lists them in `defaults_applied`. Dry run 0 requests (+1 if specs are not cached), apply 2.
-- `cad_feature_update(url, feature, params)`: only the parameters you name change; everything else is sent back as read. Dry run `changes` shows `before` and `after` per parameter. Apply costs 2. If the feature is not the last one, the reply carries a `note`: later features may have changed status, so run `cad_read` before the next write.
+- `cad_feature_add(url, feature_type, name, params)`: parameters you omit take Onshape's defaults; the dry run lists them in `defaults_applied`. Dry run 0 requests (+1 if specs are not cached), apply 2 (+1 if specs are not cached).
+- `cad_feature_update(url, feature, params)`: only the parameters you name change; everything else is sent back as read. Dry run `changes` shows `before` and `after` per parameter. Dry run 0 after a read (+1 if specs are not cached); apply 2 (+1 if specs are not cached). The reply carries a `note` demanding a re-read in two cases: the feature is not the last one (later features may have changed status), or the write's new version was fetched separately and may include someone else's edit. Run `cad_read` before the next write.
 - Read `findings` in every dry run. REFUSE codes: `UNKNOWN_FEATURE_TYPE`, `CUSTOM_FEATURE`, `UNKNOWN_PARAM`, `BAD_VALUE`, `MISSING_UNIT`, `RAW_GEOMETRY_ID`, `UNSUPPORTED_PARAM_KIND`, `SELF_REFERENCE`, `TYPED_TOOL_REQUIRED`. WARN codes: `DEFAULT_NAME`, `MAGIC_NUMBER`, `UNKNOWN_VARIABLE`, `TYPED_TOOL_AVAILABLE`, `HIDDEN_PARAM` (best effort, not evaluated exactly).
 
 ### Value forms

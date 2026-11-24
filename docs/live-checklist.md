@@ -119,13 +119,25 @@ Design: docs/superpowers/specs/2026-11-24-generic-feature-layer-design.md. Use a
 document. Request counts are for the tools. Record the real count of each step.
 
 G1. **`featurespecs` response shape** (1 request; `cad_specs` makes it). Capture the whole
-   response and confirm each field name that `generic/specs.py` assumes: spec `featureType`,
-   `featureTypeName`, `namespace` (what do custom features show?), `parameters`; per parameter
-   `btType`, `parameterId`, `quantityType`, `defaultValue`, `visibilityCondition`; quantity
-   `ranges[0].units`; enum `options` and `enumName`; array item specs under `parameters`.
-   Also the spelling of an OnEqual condition `value` (`BLIND` or `BoundingType.BLIND`):
-   `HIDDEN_PARAM` compares against it. Pass: every name matches, or the mismatch is recorded
-   and `specs.py` fixed from the capture.
+   response and confirm each field name and string that `generic/specs.py` assumes:
+   - top-level key `featureSpecs` (a wrong key fails the whole parse; native specs are those
+     with empty or missing `namespace`);
+   - spec: `featureType`, `featureTypeName`, `namespace` (what do custom features show?),
+     `parameters`;
+   - parameter: `btType`, `parameterId`, `parameterName`, `quantityType`, `defaultValue`,
+     `visibilityCondition`;
+   - parameter `btType` strings (`KIND_BY_BTTYPE`): `BTParameterSpecQuantity-173`,
+     `BTParameterSpecEnum-171`, `BTParameterSpecBoolean-170`, `BTParameterSpecString-175`,
+     `BTParameterSpecQuery-174`, `BTParameterSpecFeatureList-703`, `BTParameterSpecArray-2600`;
+   - quantity: `ranges[0].units` and `ranges[0].defaultValue`;
+   - enum: `options` (list of strings), `enumName`, and the enum's own `namespace`;
+   - array item specs under `parameters`;
+   - `visibilityCondition`: always-shown btType `BTParameterVisibilityAlwaysShown-5487`;
+     conditional btType `BTParameterVisibilityOnEqual-180` with fields `parameterId` and
+     `value`. The spelling of that `value` (`BLIND` or `BoundingType.BLIND`) matters:
+     `HIDDEN_PARAM` compares against it.
+   Pass: every name and string matches, or the mismatch is recorded and `specs.py` fixed from
+   the capture.
 G2. **Fixture replacement.** `tests/fixtures/featurespecs_UNVERIFIED.json` is hand-written.
    Another session (typed-features) commits a live capture at `tests/fixtures/feature_specs.json`
    as `{"kept": [...]}` of whole specs. Point the generic tests at it, delete the UNVERIFIED
@@ -136,21 +148,21 @@ G3. **Add with omitted parameters** (`cad_feature_add` apply, 2 requests, +1 if 
    parameters, and the defaults the dry run listed (`defaults_applied`) match what
    `cad_inspect` then shows.
 G4. **Update by sending back the read `raw` JSON with one parameter changed**
-   (`cad_feature_update` apply, 2 requests). The rebuilt named parameter replaces the original
+   (`cad_feature_update` apply, 2 requests, +1 if specs are not cached). The rebuilt named parameter replaces the original
    whole, so fields such as `nodeId` on that one parameter are not sent back. Pass: Onshape
    accepts the update, the changed parameter holds the new value, and `cad_inspect` shows every
    other parameter unchanged. If Onshape rejects it, record which field must be kept.
 G5. **Update reply.** Does the reply name a new `sourceMicroversion` (exact), as add does?
    Check (a) updating the last feature: the cache is spliced and the next apply works with no
    re-read; (b) updating a middle feature: the reply carries the re-read `note` and the next
-   write is refused until `cad_read`. Pass: both behave so, in 2 requests per apply.
+   write is refused until `cad_read`. Pass: both behave so, in 2 requests per apply (+1 if specs are not cached).
 G6. **Raw-parameter shapes `cad_inspect` renders.** On a feature with each, confirm the
    field names: `BTMParameterQueryList` `queries[].queryString` and `deterministicIds`,
    `BTMParameterFeatureList` `featureIds`, `BTMParameterArray` `items[].parameters`. Pass:
    `cad_inspect` shows the query string or `N geometry ids (set in Onshape)`, feature names for
    a feature list, and one line per array item. 0 requests after `cad_read`.
 G7. **Array patch.** On a feature with an array parameter, `cad_feature_update` with
-   `{"items": {"0": {...}}}` (2 requests). Pass: only item 0's named parameters change; a
+   `{"items": {"0": {...}}}` (2 requests, +1 if specs are not cached). Pass: only item 0's named parameters change; a
    list value over human-picked geometry is refused with `RAW_GEOMETRY_ID`.
 
 ## Live results (recorded)
