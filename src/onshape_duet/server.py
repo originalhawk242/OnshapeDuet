@@ -13,7 +13,7 @@ from .budget import Ledger
 from .cache import DocCache
 from .config import load_config
 from .docref import parse_url
-from .feature_tools import cad_find
+from .feature_tools import cad_extrude, cad_find
 from .tools import Context, cad_read, cad_sketch, cad_status, cad_variable
 
 DEFAULT_CONFIG = Path.home() / ".onshape-duet" / "config.toml"
@@ -84,6 +84,27 @@ def build_server(ctx: Context) -> MCPServer:
         except ValueError as e:
             return {"error": str(e)}
         return cad_find(ctx, ref, selector, evaluate)
+
+    @mcp.tool(name="cad_extrude")
+    def cad_extrude_tool(url: str, name: str, sketch: str, depth: float | str | None = None,
+                         operation: str = "new", end: str = "blind", flip: StrictBool = False,
+                         apply: StrictBool = False) -> dict:
+        """Extrude the profile of an existing sketch (referenced by feature name).
+        depth: mm number, '10 mm'/'2 in', or '#variable'; required unless end is
+        through_all (then it is refused). operation: new|add|remove|intersect (add,
+        remove and intersect merge with all bodies). end: blind|symmetric|through_all.
+        flip reverses the direction. DRY RUN IS THE DEFAULT: nothing is written unless
+        apply=True. Show the dry-run result (summary, findings) to the owner, then
+        apply, and read afterwards. Read the document (cad_read) before apply; a stale
+        write is refused. The lint REFUSES (writes nothing) on e.g. a duplicate feature
+        name or an unknown variable; WARN findings (magic numbers, default names) are
+        advice only. Costs: a dry run is free once the document was read; apply costs 2
+        requests (version check + write)."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_extrude(ctx, ref, name, sketch, depth, operation, end, flip, apply)
 
     return mcp
 

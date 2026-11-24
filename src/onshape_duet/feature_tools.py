@@ -1,13 +1,21 @@
 """Typed-feature tools (read-only ones so far)."""
 from __future__ import annotations
 
-from .backends.base import PostWriteError
+from collections.abc import Callable
+
+from .backends.base import PostWriteError, StaleVersion
 from .docref import DocRef
+from .features.builders import Built, build_extrude
 from .features.find import find_script, parse_find_result
 from .features.params import FeatureSpecError
 from .features.refs import compile_selector, selector_entity
+from .lint import lint_feature
+from .model import FeatureList
 from .textsafe import clean
-from .tools import _FAILURES, _ledger_numbers, _locked, _spent, _start, Context
+from .tools import (_FAILURES, _NO_READ, _apply_feature, _ledger_numbers, _locked, _refusal,
+                    _reply, _spent, _start, Context)
+
+_MAX_NAME = 100
 
 
 def _out(ctx: Context, start, **fields) -> dict:
@@ -37,3 +45,50 @@ def cad_find(ctx: Context, ref: DocRef, selector, evaluate: bool = False) -> dic
             return _out(ctx, start, error=clean(e, 300), **fields)
         fields.update(count=count, centroids_mm=centroids)
     return _out(ctx, start, **fields)
+
+
+@_locked
+def run_feature(ctx: Context, ref: DocRef, name: str, build: Callable[[FeatureList], Built],
+                apply: bool, what: str) -> dict:
+    """Shared dry-run/apply flow for typed feature tools (builds, lints, writes)."""
+    start = _start(ctx)
+    if apply and ref not in ctx.last_read:
+        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
+    try:
+        fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
+    except StaleVersion:
+        return _reply(ctx, start, False, error=_refusal(ctx, ref))
+    except _FAILURES as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    try:
+        built = build(fl)
+    except (FeatureSpecError, *_FAILURES) as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    if (not isinstance(name, str) or not name or len(name) > _MAX_NAME
+            or not name.isprintable()):
+        return _reply(ctx, start, False, error=(
+            f"invalid name: must be a non-empty string of at most {_MAX_NAME} printable "
+            "characters"))
+    feature_json = {**built.feature_json, "name": name}
+    findings = lint_feature(name, built.values, fl)
+    extra = {"feature_type": feature_json["featureType"], "summary": built.summary,
+             "findings": [f.to_dict() for f in findings],
+             "based_on_version": clean(based, 64)}
+    refusals = [f for f in findings if f.level == "refuse"]
+    if refusals:
+        return _reply(ctx, start, False,
+                      error="refused, nothing written: " + "; ".join(
+                          f"{f.code}: {f.message}" for f in refusals), **extra)
+    if not apply:
+        return _reply(ctx, start, False, **extra)
+    return _apply_feature(ctx, ref, start, feature_json, extra, what)
+
+
+def cad_extrude(ctx: Context, ref: DocRef, name: str, sketch: str, depth=None,
+                operation: str = "new", end: str = "blind", flip: bool = False,
+                apply: bool = False) -> dict:
+    return run_feature(
+        ctx, ref, name,
+        lambda fl: build_extrude(fl, sketch=sketch, depth=depth, operation=operation,
+                                 end=end, flip=flip),
+        apply, "the extrude")
