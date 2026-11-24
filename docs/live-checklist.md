@@ -112,3 +112,18 @@ Expected: `cad_read` on a fresh document 2, unchanged 1; dry runs after a read 0
 sketch dry run that references no `#variable` is always free); apply 2 with the backstop (version check + write; +1 if the
 write reply lacks a new version, after which a `cad_read` is required before the next
 write), 1 once the backstop is removed.
+
+## Live results (recorded)
+
+- **Server-side skew rejection does NOT prevent the write.** Sending `sourceMicroversion`
+  (stale) + `rejectMicroversionSkew: true` to the features POST: Onshape APPLIED the
+  feature and replied with `microversionSkew: true`. The new feature was present
+  afterwards. So the client-side backstop (`_backstop`, one `currentmicroversion` GET
+  before each POST) is the only real guard and MUST stay; a human edit between the
+  backstop GET and the POST can still land unseen (narrow race; the reply then reports
+  `StaleVersion(may_have_landed=True)`).
+- `currentmicroversion` returns `{"microversion": ...}`; it is comparable with the
+  feature list's `sourceMicroversion` (the backstop passes on an unchanged document).
+- Variables: `assignVariable` feature, name template `#name = #value`, params `name`
+  (string), `variableType` (enum LENGTH), `lengthValue` (quantity). Create and update
+  both verified. Create's reply carries no exact new version, so a re-read is demanded.
