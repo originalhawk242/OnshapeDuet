@@ -21,7 +21,7 @@ from .budget import BudgetExceeded, Ledger
 from .cache import DocCache
 from .config import Config
 from .docref import DocRef
-from .lint import lint_sketch
+from .lint import Finding, lint_sketch
 from .model import FeatureList
 from .outline import render_outline
 from .sketch.serialize import to_feature_json
@@ -104,6 +104,7 @@ def _locked(fn):
 _STALE = ("stale: the document changed since it was last read; "
           "re-read the document (cad_read) and retry")
 _VAR_NAME = re.compile(r"[a-z][a-z0-9_]*")
+_HASH_REF = re.compile(r"#([A-Za-z_][A-Za-z0-9_]*)")
 _MAX_EXPR = 200
 
 
@@ -240,8 +241,12 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     current = {v.name: v.expression for v in variables_from_features(fl)}
     old = current.get(name)
     existing = find_variable(fl, name)
+    unknown = sorted({m for m in _HASH_REF.findall(expression) if m not in current})
+    findings = [Finding("warn", "UNKNOWN_VARIABLE",
+                        f"the expression references #{clean(m, 40)}, which is not a variable "
+                        "in the document as last read").to_dict() for m in unknown]
     extra = {"name": name, "old": None if old is None else clean(old, 200),
-             "new": expression, "findings": [], "based_on_version": clean(based, 64)}
+             "new": expression, "findings": findings, "based_on_version": clean(based, 64)}
     if not apply:
         return _reply(ctx, start, False, **extra)
 
@@ -259,6 +264,17 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
         return _reply(ctx, start, False, error=_STALE, **extra)
     except _FAILURES as e:
         return _reply(ctx, start, False, error=clean(e, 300), **extra)
+    status = clean(result.feature.status, 40)
+    if status:  # "" means the backend did not report a regeneration status
+        extra["status"] = status
+        if status != "OK":
+            warning = (f"applied, but the variable feature's regeneration status is {status}: "
+                       "the variable was written; inspect and fix it")
+            extra["warning"] = warning
+            extra["findings"] = [*findings, {"level": "error", "code": "REGEN_STATUS",
+                                             "message": warning}]
+    if result.feature.id:
+        extra["feature_id"] = clean(result.feature.id, 64)
     if not result.exact:
         ctx.lose_track(ref, _REFETCHED)
         return _reply(ctx, start, True, **extra, note=_REFETCHED)

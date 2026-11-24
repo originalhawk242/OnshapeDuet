@@ -174,3 +174,61 @@ def test_s1_dry_run_fallback_never_advances_last_read(env):
     backend.simulate_human_edit(REF)
     cad_variable(ctx, REF, "w", "5 mm")
     assert ctx.last_read[REF] == "mv0"
+
+
+# --- wave 2: D (regeneration status) and #name validation (T10) ---
+
+class _StatusBackend(FakeBackend):
+    status = "OK"
+
+    def set_variable(self, *a, **k):
+        res = super().set_variable(*a, **k)
+        from dataclasses import replace
+        return type(res)(replace(res.feature, status=self.status), res.microversion, res.exact)
+
+
+def _status_env(tmp_path, status):
+    ledger = Ledger(tmp_path / "ledger.json", 100)
+    backend = _StatusBackend(ledger)
+    backend.status = status
+    ctx = Context(backend, DocCache(backend), ledger, Config(budget=100))
+    ctx.read(REF)
+    return ctx
+
+
+@pytest.mark.parametrize("status", ["ERROR", "WARNING", "INFO"])
+def test_variable_apply_reports_regeneration_status(tmp_path, status):
+    out = cad_variable(_status_env(tmp_path, status), REF, "w", "1 mm", apply=True)
+    assert out["applied"] is True and out["status"] == status and "warning" in out
+    assert [f for f in out["findings"] if f["level"] == "error" and f["code"] == "REGEN_STATUS"]
+
+
+def test_variable_apply_ok_status_has_no_error_finding(tmp_path):
+    out = cad_variable(_status_env(tmp_path, "OK"), REF, "w", "1 mm", apply=True)
+    assert out["status"] == "OK" and out["findings"] == [] and "warning" not in out
+
+
+def test_unknown_status_is_not_an_error(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+
+    class NoStatus(type(backend)):
+        def set_variable(self, *a, **k):
+            res = super().set_variable(*a, **k)
+            from dataclasses import replace
+            return type(res)(replace(res.feature, status="", id=""), res.microversion, res.exact)
+    backend.__class__ = NoStatus
+    out = cad_variable(ctx, REF, "w", "1 mm", apply=True)
+    assert out["applied"] is True and "status" not in out and out["findings"] == []
+
+
+def test_expression_referencing_missing_variable_warns_but_is_not_refused(env):
+    ctx, backend, _ = env
+    backend._doc(REF).variables["w"] = "10 mm"
+    ctx.read(REF)
+    out = cad_variable(ctx, REF, "h", "#w * 2 + #nope")
+    assert [f["code"] for f in out["findings"]] == ["UNKNOWN_VARIABLE"]
+    assert out["findings"][0]["level"] == "warn" and "#nope" in out["findings"][0]["message"]
+    done = cad_variable(ctx, REF, "h", "#w * 2 + #nope", apply=True)
+    assert done["applied"] is True
+    assert cad_variable(ctx, REF, "k", "#w")["findings"] == []
