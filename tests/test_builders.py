@@ -2,6 +2,7 @@ import pytest
 
 from onshape_duet.features.builders import build_extrude
 from onshape_duet.features.params import FeatureSpecError
+from onshape_duet.features.refs import RefError
 from onshape_duet.model import Feature, FeatureList
 
 from ui_fixture import assert_matches_spec
@@ -229,3 +230,73 @@ def test_fillet_chamfer_bad_size_refused(v):
         build_fillet(FL, edges=EDGES, radius=v)
     with pytest.raises(FeatureSpecError):
         build_chamfer(FL, edges=EDGES, distance=v)
+
+
+# ---- cad_shell / cad_boolean builders ----
+from onshape_duet.features.builders import build_boolean, build_shell  # noqa: E402
+
+FACES = {"entity": "face", "created_by": "Base", "cap": "end"}
+BODY = {"entity": "body", "created_by": "Base"}
+
+
+def test_build_shell_matches_spec():
+    b = build_shell(FL, faces=FACES, thickness=2, outward=True)
+    assert_matches_spec(b.feature_json, "shell")
+    p = _by_id(b)
+    assert b.feature_json["featureType"] == "shell"
+    assert p["thickness"]["expression"] == "2 mm"
+    assert p["oppositeDirection"]["value"] is True
+    assert p["entities"]["queries"][0]["queryString"]
+    assert "isHollow" not in p and "parts" not in p
+    assert b.values[0].literal == 2
+    assert _by_id(build_shell(FL, faces=FACES, thickness=2))["oppositeDirection"]["value"] is False
+
+
+def test_build_boolean_union_matches_spec():
+    b = build_boolean(FL, operation="union", tools=[BODY, BODY])
+    assert_matches_spec(b.feature_json, "booleanBodies")
+    p = _by_id(b)
+    assert b.feature_json["featureType"] == "booleanBodies"
+    assert p["operationType"]["value"] == "UNION"
+    assert p["keepTools"]["value"] is False
+    assert "targets" not in p and p["tools"]["queries"][0]["queryString"]
+
+
+def test_build_boolean_subtract_and_intersect():
+    b = build_boolean(FL, operation="subtract", tools=BODY, targets=BODY, keep_tools=True)
+    assert_matches_spec(b.feature_json, "booleanBodies")
+    p = _by_id(b)
+    assert p["operationType"]["value"] == "SUBTRACTION"
+    assert p["keepTools"]["value"] is True and "targets" in p
+    assert _by_id(build_boolean(FL, operation="intersect", tools=BODY))["operationType"]["value"] \
+        == "INTERSECTION"
+    assert b.summary["tools"] == BODY
+
+
+def test_boolean_subtract_requires_targets():
+    with pytest.raises(FeatureSpecError, match="targets"):
+        build_boolean(FL, operation="subtract", tools=BODY)
+
+
+@pytest.mark.parametrize("op", ["union", "intersect"])
+def test_boolean_union_rejects_targets(op):
+    with pytest.raises(FeatureSpecError, match="targets"):
+        build_boolean(FL, operation=op, tools=BODY, targets=BODY)
+
+
+def test_boolean_bad_operation_and_entities():
+    with pytest.raises(FeatureSpecError, match="operation"):
+        build_boolean(FL, operation="merge", tools=BODY)
+    with pytest.raises(RefError, match="tools"):
+        build_boolean(FL, operation="union", tools=FACES)
+    with pytest.raises(RefError, match="targets"):
+        build_boolean(FL, operation="subtract", tools=BODY, targets=FACES)
+    with pytest.raises(FeatureSpecError, match="keep_tools"):
+        build_boolean(FL, operation="union", tools=BODY, keep_tools="yes")
+
+
+def test_shell_edge_selector_refused():
+    with pytest.raises(RefError, match="faces"):
+        build_shell(FL, faces=EDGES, thickness=1)
+    with pytest.raises(FeatureSpecError, match="outward"):
+        build_shell(FL, faces=FACES, thickness=1, outward="x")

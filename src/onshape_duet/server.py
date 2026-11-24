@@ -13,7 +13,7 @@ from .budget import Ledger
 from .cache import DocCache
 from .config import load_config
 from .docref import parse_url
-from .feature_tools import (cad_chamfer, cad_extrude, cad_fillet, cad_find, cad_plane,
+from .feature_tools import (cad_boolean, cad_shell, cad_chamfer, cad_extrude, cad_fillet, cad_find, cad_plane,
                            cad_revolve)
 from .tools import Context, cad_read, cad_sketch, cad_status, cad_variable
 
@@ -183,6 +183,44 @@ def build_server(ctx: Context) -> MCPServer:
         except ValueError as e:
             return {"applied": False, "error": str(e)}
         return cad_chamfer(ctx, ref, name, edges, distance, apply)
+
+    @mcp.tool(name="cad_shell")
+    def cad_shell_tool(url: str, name: str, faces: dict | list,
+                       thickness: StrictFloat | StrictInt | StrictStr,
+                       outward: StrictBool = False, apply: StrictBool = False) -> dict:
+        """Hollow a solid: remove the selected faces and leave walls of the given thickness.
+        faces: a face selector (or a list of them) for the faces to remove, e.g.
+        {"entity": "face", "created_by": "Base", "cap": "end"}; edge and body selectors are
+        refused. thickness: length number (mm), '2 in' or '#variable'. outward: grow the wall
+        outward instead of inward (default false). DRY RUN IS THE DEFAULT: nothing is written
+        unless apply=True. Show the dry-run result (summary, findings) to the owner, then apply,
+        and read afterwards. Read the document (cad_read) before apply; a stale write is
+        refused. Costs: a dry run is free once the document was read; apply costs 2 requests
+        (version check + write), or 3 when the write reply names no new version."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_shell(ctx, ref, name, faces, thickness, outward, apply)
+
+    @mcp.tool(name="cad_boolean")
+    def cad_boolean_tool(url: str, name: str, operation: str, tools: dict | list,
+                         targets: dict | list | None = None, keep_tools: StrictBool = False,
+                         apply: StrictBool = False) -> dict:
+        """Combine bodies. operation: union (merge the tools), subtract (cut the tools out of
+        targets) or intersect (keep the common volume of the tools). tools/targets: body
+        selectors (or lists of them), e.g. {"entity": "body", "created_by": "Base"}; other
+        entities are refused. targets is required for subtract and refused otherwise.
+        keep_tools: keep the tool bodies afterwards (default false). DRY RUN IS THE DEFAULT:
+        nothing is written unless apply=True. Show the dry-run result (summary, findings) to the
+        owner, then apply, and read afterwards. Read the document (cad_read) before apply; a
+        stale write is refused. Costs: a dry run is free once the document was read; apply costs
+        2 requests (version check + write), or 3 when the write reply names no new version."""
+        try:
+            ref = parse_url(url, ctx.config.base_url)
+        except ValueError as e:
+            return {"applied": False, "error": str(e)}
+        return cad_boolean(ctx, ref, name, operation, tools, targets, keep_tools, apply)
 
     return mcp
 

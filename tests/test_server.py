@@ -371,3 +371,19 @@ def test_fillet_chamfer_size_rejects_bool_at_mcp_layer(tmp_path, tool, key, size
         res = e
     assert "applied" not in repr(res) or "error" in repr(res)
     assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("size", [True, False])
+def test_shell_thickness_rejects_bool_at_mcp_layer(tmp_path, size):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert {"cad_shell", "cad_boolean"} <= names
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool("cad_shell", {"url": url, "name": "H",
+                                                      "faces": {"entity": "face"}, "thickness": size}))
+    except Exception as e:
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0

@@ -172,3 +172,15 @@ def test_fillet_chamfer_dry_run(with_sketch):
     out = cad_chamfer(ctx, REF, "Bevel", sel, 1)
     assert out["applied"] is False and out["feature_type"] == "chamfer"
     assert "edges" in cad_fillet(ctx, REF, "R2", {"entity": "body", "created_by": "Base"}, 2)["error"]
+
+
+def test_shell_boolean_dry_run(with_sketch):
+    from onshape_duet.feature_tools import cad_boolean, cad_shell
+    ctx, backend, _ = with_sketch
+    face = {"entity": "face", "created_by": "Base", "cap": "end"}
+    body = {"entity": "body", "created_by": "Base"}
+    out = cad_shell(ctx, REF, "Hollow", face, 2)
+    assert out["applied"] is False and out["feature_type"] == "shell"
+    out = cad_boolean(ctx, REF, "Merge", "union", body)
+    assert out["applied"] is False and out["feature_type"] == "booleanBodies"
+    assert "faces" in cad_shell(ctx, REF, "H2", {"entity": "edge", "created_by": "Base"}, 2)["error"]

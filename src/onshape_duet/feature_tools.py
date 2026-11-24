@@ -5,8 +5,8 @@ from collections.abc import Callable
 
 from .backends.base import PostWriteError, StaleVersion
 from .docref import DocRef
-from .features.builders import (Built, build_chamfer, build_extrude, build_fillet, build_plane,
-                                       build_revolve)
+from .features.builders import (Built, build_boolean, build_chamfer, build_extrude, build_fillet,
+                                build_plane, build_revolve, build_shell)
 from .features.find import find_script, parse_find_result
 from .features.params import FeatureSpecError
 from .features.refs import compile_selector, selector_entity
@@ -122,3 +122,19 @@ def cad_chamfer(ctx: Context, ref: DocRef, name: str, edges, distance, apply: bo
     return run_feature(ctx, ref, name,
                        lambda fl: build_chamfer(fl, edges=edges, distance=distance),
                        apply, "the chamfer")
+
+
+def cad_shell(ctx: Context, ref: DocRef, name: str, faces, thickness, outward: bool = False,
+              apply: bool = False) -> dict:
+    return run_feature(ctx, ref, name,
+                       lambda fl: build_shell(fl, faces=faces, thickness=thickness, outward=outward),
+                       apply, "the shell")
+
+
+def cad_boolean(ctx: Context, ref: DocRef, name: str, operation: str, tools, targets=None,
+                keep_tools: bool = False, apply: bool = False) -> dict:
+    return run_feature(
+        ctx, ref, name,
+        lambda fl: build_boolean(fl, operation=operation, tools=tools, targets=targets,
+                                 keep_tools=keep_tools),
+        apply, "the boolean")

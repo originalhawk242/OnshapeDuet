@@ -135,6 +135,14 @@ def build_revolve(fl: FeatureList, *, sketch: str, axis: str, angle=360,
     return Built(feature("revolve", "", params), values, summary)
 
 
+def _selector_query(sel, fl: FeatureList, arg: str, allowed: tuple[str, ...], param_id: str):
+    """Selector whose entity must be one of `allowed` -> query parameter `param_id`."""
+    if selector_entity(sel) not in allowed:
+        raise RefError(f"{arg}: selector entity must be {' or '.join(repr(a) for a in allowed)}, "
+                       f"got {clean(selector_entity(sel), 30)!r}")
+    return p_query(param_id, [compile_selector(sel, fl, arg)])
+
+
 def _edge_query(edges, fl: FeatureList):
     """Edge or face selector (a face rounds all its edges); refuses bodies."""
     if selector_entity(edges) not in ("edge", "face"):
@@ -160,3 +168,35 @@ def build_chamfer(fl: FeatureList, *, edges, distance) -> Built:
     params = [query, p_enum("chamferType", "ChamferType", "EQUAL_OFFSETS"), p_qty("width", d)]
     return Built(feature("chamfer", "", params), [d],
                  {"edges": _clean_deep(edges), "distance": d.expr})
+
+
+def build_shell(fl: FeatureList, *, faces, thickness, outward: bool = False) -> Built:
+    query = _selector_query(faces, fl, "faces", ("face",), "entities")
+    t = length(thickness, "thickness")
+    outward = _flag("outward", outward)
+    # UNVERIFIED live until Task 14: "oppositeDirection = outward" (spec says only Boolean).
+    # isHollow and parts are deliberately not emitted.
+    params = [query, p_qty("thickness", t), p_bool("oppositeDirection", outward)]
+    return Built(feature("shell", "", params), [t],
+                 {"faces": _clean_deep(faces), "thickness": t.expr, "outward": outward})
+
+
+_BOOLEAN_OPS = {"union": "UNION", "subtract": "SUBTRACTION", "intersect": "INTERSECTION"}
+
+
+def build_boolean(fl: FeatureList, *, operation: str, tools, targets=None,
+                  keep_tools: bool = False) -> Built:
+    op = _choice("operation", operation, tuple(_BOOLEAN_OPS))
+    keep_tools = _flag("keep_tools", keep_tools)
+    if op == "subtract" and targets is None:
+        raise FeatureSpecError("targets: required for subtract (the bodies to cut from)")
+    if op != "subtract" and targets is not None:
+        raise FeatureSpecError(f"targets: only allowed for subtract; {op} combines the tools")
+    params = [p_enum("operationType", "BooleanOperationType", _BOOLEAN_OPS[op]),
+              _selector_query(tools, fl, "tools", ("body",), "tools")]
+    summary = {"operation": op, "tools": _clean_deep(tools), "keep_tools": keep_tools}
+    if targets is not None:
+        params.append(_selector_query(targets, fl, "targets", ("body",), "targets"))
+        summary["targets"] = _clean_deep(targets)
+    params.append(p_bool("keepTools", keep_tools))
+    return Built(feature("booleanBodies", "", params), [], summary)
