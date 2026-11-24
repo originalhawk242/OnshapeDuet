@@ -19,7 +19,8 @@
 - Writes: dry run unless `apply=True`. Apply needs a prior `cad_read` and no `refuse` finding, and goes through `_apply_feature`. Apply costs 2 requests (+1 if specs are not cached).
 - Untouched parameters on update are sent back byte-for-byte as read.
 - Shared files: `model.py` (only `Feature.raw`), `backends/onshape.py` (`_parse_feature` fills `raw`, plus two new methods), `backends/fake.py`, `backends/base.py`, `tools.py`, `server.py` (append-only). Do **not** edit `lint.py`, `features/`, or `_apply_feature`'s add behaviour.
-- Base branch: `generic-features` in worktree `/home/varun/Documents/OnshapeDuet-generic`, on top of milestone 4's `f5e8809`.
+- Base branch: `generic-features` in worktree `/home/varun/Documents/OnshapeDuet-generic`, on top of milestone 4's `941ac46` (Tasks 2–3: `_apply_feature`, `features/params.py`).
+- Reuse milestone 4's JSON makers from `onshape_duet.features.params`: `p_enum(pid, enum_name, value)`, `p_bool(pid, v)`, `p_query(pid, exprs)` and `feature(feature_type, name, params)`. Do not write those shapes again. Quantities are built locally, because `params.length()` accepts only a literal or a bare `#var`, and generic quantities need any expression and any quantity type.
 - Feature types with milestone-4 typed tools (keep in sync with that plan): `extrude, revolve, fillet, chamfer, hole, shell, booleanBodies, linearPattern, circularPattern, mirror, cPlane`. Refused outright in generic tools: `newSketch, assignVariable`.
 - Unverified Onshape shapes (featurespecs; update with sent-back raw) are isolated in `generic/specs.py` and `OnshapeBackend.update_feature`, and listed in `docs/live-checklist.md`.
 
@@ -173,13 +174,13 @@ def test_server_registers_generic_read_tools():               # tool names prese
 - Test: `tests/test_generic_build.py`
 
 **Interfaces:**
-- Consumes: `ParamSpec`, `FeatureList`, `find_feature`.
+- Consumes: `ParamSpec`, `FeatureList`, `find_feature`, and `p_enum`/`p_bool`/`p_query` from `features.params`.
 - Produces:
   - `class ParamError(ValueError)` with `.code` (one of `BAD_VALUE, MISSING_UNIT, RAW_GEOMETRY_ID, UNSUPPORTED_PARAM_KIND`) and `.param`.
   - `build_param(spec: ParamSpec, value: object, fl: FeatureList, *, current: dict | None = None) -> dict` returns one BTM parameter JSON with `parameterId` set. `current` is the feature's existing raw parameter with this id (updates only):
-    - quantity → `BTMParameterQuantity-147` `{"expression": value}`. The value must be a printable string of at most 200 chars. A bare int/float (not bool) is allowed only when `quantity_type` is `INTEGER` or `REAL` (becomes `str(value)`). For a quantity with `units`, a string that is only a number (regex `^\s*[-+]?\d+(\.\d+)?\s*$`) is `MISSING_UNIT`.
-    - enum → `BTMParameterEnum-145` `{"value", "enumName", "namespace"}`, from the spec. A value not in `options` is `BAD_VALUE`; if `value.upper()` matches an option, the message names it.
-    - boolean → `BTMParameterBoolean-144`; strictly `bool`.
+    - quantity → `{"btType": "BTMParameterQuantity-147", "parameterId", "expression": value, "isInteger": quantity_type == "INTEGER"}` (same keys as `p_qty`). The value must be a printable string of at most 200 chars. A bare int/float (not bool) is allowed only when `quantity_type` is `INTEGER` or `REAL` (becomes `str(value)`). For a quantity with `units`, a string that is only a number (regex `^\s*[-+]?\d+(\.\d+)?\s*$`) is `MISSING_UNIT`.
+    - enum → `p_enum(spec.id, spec.enum_name, value)`. A value not in `options` is `BAD_VALUE`; if `value.upper()` matches an option, the message names it.
+    - boolean → `p_bool`; strictly `bool`.
     - string → `BTMParameterString-149`; printable, ≤ 200 chars.
     - query → selector dict or list of them, built as `p_query(spec.id, [compile_selector(sel, fl, spec.id) for sel in sels])`. Import `onshape_duet.features.refs` lazily inside the function; on `ImportError` raise `UNSUPPORTED_PARAM_KIND` "selectors not available yet". Any dict containing a `deterministicIds` or `btType` key anywhere is `RAW_GEOMETRY_ID`, checked before the import.
     - feature_list → list of names/ids, resolved with `find_feature`, → `BTMParameterFeatureList-1749` `{"featureIds": [...]}`.
@@ -284,7 +285,7 @@ def test_params_not_a_dict():
   - `extra = {"feature_type", "name", "params": readable, "defaults_applied", "findings", "based_on_version"}`.
   - Any refuse finding → `_reply(False, error="refused, nothing written: " + "; ".join(code: message))`, the same wording as `cad_sketch`.
   - Dry run → `_reply(False, **extra)`.
-  - Apply → `_apply_feature(ctx, ref, start, {"btType": "BTMFeature-134", "featureType": t, "name": name, "parameters": prepared.parameters}, extra, f"the {spec.name} feature")`.
+  - Apply → `_apply_feature(ctx, ref, start, feature(t, name, prepared.parameters), extra, f"the {spec.name} feature")`.
   - `server.py`: `cad_feature_add(url, feature_type: str, name: str, params: dict, apply: StrictBool = False)`. The docstring says: dry run default; geometry via selector dicts (same DSL as `cad_find`); use typed tools first; cost.
 
 - [ ] **Step 1: Write failing tests**
