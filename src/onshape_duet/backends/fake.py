@@ -109,13 +109,16 @@ class FakeBackend:
         parameters = feature_json.get("parameters")
         status = self.next_status or feature_json.get("status", "OK")
         self.next_status = None
+        new_id = d.new_id()
         feat = Feature(
-            id=d.new_id(),
+            id=new_id,
             type=feature_json.get("featureType") or feature_json.get("type") or feature_json.get("btType") or "",
             name=feature_json.get("name", ""),
             status=status,
             params=(flatten_params(parameters) if isinstance(parameters, list)
                     else copy.deepcopy(feature_json.get("params", {}))),
+            raw=({**copy.deepcopy(feature_json), "featureId": new_id}
+                 if isinstance(parameters, list) else {}),
         )
         d.features.append(feat)
         d.version += 1

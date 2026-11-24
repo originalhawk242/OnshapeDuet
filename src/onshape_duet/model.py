@@ -11,6 +11,7 @@ class Feature:
     name: str
     status: str
     params: dict = field(default_factory=dict)
+    raw: dict = field(default_factory=dict)  # feature JSON exactly as Onshape returned it ({} when unknown)
 
 
 @dataclass(frozen=True)

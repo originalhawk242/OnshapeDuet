@@ -8,6 +8,7 @@ until Task 12; they are isolated here as constants/small functions.
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import hmac
 import os
@@ -93,6 +94,7 @@ def _parse_feature(f: dict, states: dict) -> Feature:
             name=_s(f.get("name")),
             status=_s(st.get("featureStatus")) or "OK",
             params=flatten_params(raw_params),
+            raw=copy.deepcopy(f),
         )
     except (AttributeError, KeyError, TypeError) as e:
         raise RuntimeError(f"unexpected Onshape response: malformed feature ({type(e).__name__})") from e
