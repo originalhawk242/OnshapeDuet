@@ -95,3 +95,14 @@ def test_params_not_a_dict():
     for bad in ([("depth", "1 mm")], {1: "x"}):
         p = prepare(SPECS, "extrude", bad, FL, mode="add")
         assert [f.code for f in p.findings] == ["BAD_VALUE"]
+
+
+def test_typed_tool_available_names_only_shipped_tools():
+    from onshape_duet.generic.validate import TYPED_TOOL_AVAILABLE
+    assert TYPED_TOOL_AVAILABLE == {"extrude": "cad_extrude"}
+    for t in ("fillet", "cPlane", "revolve"):
+        spec = SPECS.get(t)
+        if spec is None:
+            continue
+        assert not [f for f in lint_generic(t, "Mine", {}, spec, FL, mode="add")
+                    if f.code == "TYPED_TOOL_AVAILABLE"]

@@ -58,19 +58,51 @@ def _str(d: dict, key: str) -> str:
 def _condition(vis: object) -> tuple[bool, str]:
     if not isinstance(vis, dict) or not vis or vis.get("btType") == _ALWAYS_SHOWN:
         return False, ""
+    if set(vis) <= {"btType"}:  # bare BTParameterVisibilityCondition-177: always shown
+        return False, ""
     if vis.get("btType") == _ON_EQUAL and isinstance(vis.get("parameterId"), str):
         return True, f"{vis['parameterId']} == {vis.get('value')}"
     return True, "conditional"
 
 
-def _default(d: dict, ranges: list) -> object:
+_PREFERRED_UNIT = {"LENGTH": ("millimeter", "mm"), "ANGLE": ("degree", "deg")}
+_SHORT_UNIT = {"millimeter": "mm", "degree": "deg"}
+
+
+def _num(v: object) -> str | None:
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return f"{v:g}"
+
+
+def _range_default(ranges: list, quantity_type: str) -> str | None:
+    """A readable default from a quantity's `ranges`: the millimeter / degree entry
+    when present (live specs list meter or radian first), else the first entry."""
+    entries = [r for r in ranges if isinstance(r, dict) and _num(r.get("defaultValue")) is not None]
+    if not entries:
+        return None
+    want = _PREFERRED_UNIT.get(quantity_type)
+    pick = next((r for r in entries if want and r.get("units") == want[0]), entries[0])
+    unit = pick.get("units")
+    unit = _SHORT_UNIT.get(unit, unit) if isinstance(unit, str) else ""
+    num = _num(pick["defaultValue"])
+    return f"{num} {unit}".strip()
+
+
+def _default(d: dict, ranges: list, kind: str, quantity_type: str) -> object:
+    """A scalar default (str, bool, number) or None. Never a raw BTM dict."""
     dv = d.get("defaultValue")
     if isinstance(dv, dict):
         vals = list(flatten_params([dv]).values())
-        if vals:
-            return vals[0]
-    if ranges and isinstance(ranges[0], dict):
-        return ranges[0].get("defaultValue")
+        flat = vals[0] if vals else None
+    else:
+        flat = None
+    if kind == "quantity":
+        if isinstance(flat, str) and flat:
+            return flat
+        return _range_default(ranges, quantity_type)
+    if isinstance(flat, (str, bool, int, float)):
+        return flat
     return None
 
 
@@ -100,7 +132,8 @@ def _parse_param(d: object) -> ParamSpec:
     return ParamSpec(
         id=pid, name=_str(d, "parameterName"), kind=kind,
         quantity_type=_str(d, "quantityType") if kind == "quantity" else "",
-        units=units, default=_default(d, ranges) if kind != "unsupported" else None,
+        units=units, default=(_default(d, ranges, kind, _str(d, "quantityType"))
+                 if kind != "unsupported" else None),
         options=options,
         enum_name=_str(d, "enumName") if kind == "enum" else "",
         enum_namespace=_str(d, "namespace") if kind == "enum" else "",

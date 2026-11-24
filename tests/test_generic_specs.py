@@ -111,3 +111,60 @@ def test_onshape_get_feature_specs_path(tmp_path, monkeypatch):
     specs = b.get_feature_specs(REF)
     assert seen == [("GET", f"/api/v6/partstudios/d/{'a'*24}/w/{'b'*24}/e/{'c'*24}/featurespecs")]
     assert ledger.used == 1 and len(specs) == 6
+
+
+def _live_param(bt, pid, qt=None, default=None, ranges=None, vis=None):
+    return {"btType": bt, "parameterId": pid, "parameterName": pid, "quantityType": qt,
+            "defaultValue": default, "ranges": ranges, "visibilityCondition": vis}
+
+
+def _live_spec():
+    qty = lambda pid, qt, u, v: {"btType": "BTMParameterQuantity-147", "parameterId": pid,
+                                 "units": u, "value": v, "expression": "", "isInteger": False}
+    return {"featureSpecs": [{"featureType": "liveThing", "featureTypeName": "Live", "namespace": "",
+        "parameters": [
+            _live_param("BTParameterSpecQuantity-173", "depth", "LENGTH", qty("depth", "LENGTH", "meter", 0.025),
+                        [{"defaultValue": 0.025, "units": "meter"}, {"defaultValue": 2.5, "units": "centimeter"},
+                         {"defaultValue": 25.0, "units": "millimeter"}]),
+            _live_param("BTParameterSpecQuantity-173", "draft", "ANGLE", qty("draft", "ANGLE", "degree", 3.0),
+                        [{"defaultValue": 3.0, "units": "degree"}, {"defaultValue": 0.0523, "units": "radian"}]),
+            _live_param("BTParameterSpecQuantity-173", "count", "INTEGER", qty("count", "INTEGER", "", 4.0),
+                        [{"defaultValue": 4.0, "units": ""}]),
+            _live_param("BTParameterSpecQuery-174", "entities",
+                        default={"btType": "BTMParameterQueryList-148", "parameterId": "entities", "queries": []}),
+            _live_param("BTParameterSpecFeatureList-703", "fl",
+                        default={"btType": "BTMParameterFeatureList-1749", "parameterId": "fl", "featureIds": []}),
+            _live_param("BTParameterSpecArray-2600", "arr",
+                        default={"btType": "BTMParameterArray-2025", "parameterId": "arr", "items": []}),
+            _live_param("BTParameterSpecBoolean-170", "flip",
+                        default={"btType": "BTMParameterBoolean-144", "parameterId": "flip", "value": False},
+                        vis={"btType": "BTParameterVisibilityCondition-177"}),
+        ]}]}
+
+
+def test_live_shaped_defaults():
+    (spec,) = parse_feature_specs(_live_spec())
+    d = {p.id: p.default for p in spec.params}
+    assert d["depth"] == "25 mm"
+    assert d["draft"] == "3 deg"
+    assert d["count"] == "4"
+    assert d["entities"] is None and d["fl"] is None and d["arr"] is None
+    assert d["flip"] is False
+
+
+def test_bare_visibility_condition_is_always_shown():
+    (spec,) = parse_feature_specs(_live_spec())
+    assert spec.param("flip").conditional is False and spec.param("flip").condition == ""
+
+
+def test_real_capture_defaults_if_present():
+    path = Path(__file__).parent / "fixtures" / "feature_specs.json.gz"
+    if not path.exists():
+        pytest.skip("feature_specs.json.gz arrives when the branch merges with typed-features")
+    import gzip
+    data = json.loads(gzip.open(path).read())
+    specs = {s.type: s for s in parse_feature_specs({"featureSpecs": data.get("kept", data)})}
+    assert specs["extrude"].param("depth").default == "25 mm"
+    for s in specs.values():
+        for p in s.params:
+            assert p.default is None or isinstance(p.default, (str, bool, int, float))
