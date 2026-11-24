@@ -224,9 +224,9 @@ class OnshapeBackend:
                 f"the write succeeded but reading the new version failed ({e})") from e
 
     def get_microversion(self, ref: DocRef) -> str:
-        mv = self._ok(self._request("GET", microversion_path(ref))).get("microversionId")
+        mv = self._ok(self._request("GET", microversion_path(ref))).get("microversion")
         if not isinstance(mv, str) or not mv:
-            raise RuntimeError("unexpected Onshape response: missing microversionId")
+            raise RuntimeError("unexpected Onshape response: missing microversion")
         return mv
 
     def list_features(self, ref: DocRef) -> FeatureList:

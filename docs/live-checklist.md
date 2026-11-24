@@ -56,7 +56,7 @@ can the client-side backstop be judged. Record the request count of every step.
    request or omits it, apply costs 3 and the second apply is refused until `cad_read`.
    Record which one happens. If the reply is always exact, the re-read demand never
    triggers; keep it anyway as a guard.
-4. **`currentmicroversion` key:** `microversionId` vs `microversion`.
+4. **`currentmicroversion` key:** VERIFIED LIVE: the key is `microversion`.
 5. **Whether `currentmicroversion` and the feature list's `sourceMicroversion` are the
    same id.** If they DIFFER, EVERY apply is refused by the client-side backstop
    (the backstop compares the two), not just cache lookups missing; `cad_read` on an

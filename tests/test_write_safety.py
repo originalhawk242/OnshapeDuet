@@ -42,7 +42,7 @@ class Doc:
             self.version = self.version_after_post
             return httpx.Response(self.post_status, json=self.post_reply, headers=self.post_headers)
         if req.url.path.endswith("currentmicroversion"):
-            return httpx.Response(200, json={"microversionId": self.version})
+            return httpx.Response(200, json={"microversion": self.version})
         return httpx.Response(200, json={"sourceMicroversion": self.version,
                                          "featureStates": {}, "features": []})
 
@@ -164,7 +164,7 @@ def _handler_for(kind):
             return httpx.Response(200, json=dict(FEATURE_REPLY))   # followup fails below
         if req.url.path.endswith("currentmicroversion"):
             return httpx.Response(500, text="boom") if (kind == "followup" and posted) else \
-                httpx.Response(200, json={"microversionId": "mv1"})
+                httpx.Response(200, json={"microversion": "mv1"})
         return httpx.Response(200, json={"sourceMicroversion": "mv1", "featureStates": {}, "features": []})
     return handler
 

@@ -41,7 +41,7 @@ def test_every_request_charges_before_sending(tmp_path):
     def handler(req):
         seen.append(ledger.used)
         assert req.headers["Authorization"].startswith("On key:HmacSHA256:")
-        return httpx.Response(200, json={"microversionId": "mv9"})
+        return httpx.Response(200, json={"microversion": "mv9"})
 
     b, ledger = make(tmp_path, handler)
     assert b.get_microversion(REF) == "mv9"
@@ -60,7 +60,7 @@ def test_redirect_hop_is_charged(tmp_path):
     def handler(req):
         if req.url.path.endswith("currentmicroversion"):
             return httpx.Response(302, headers={"Location": "/api/moved"})
-        return httpx.Response(200, json={"microversionId": "mv2"})
+        return httpx.Response(200, json={"microversion": "mv2"})
 
     b, ledger = make(tmp_path, handler)
     assert b.get_microversion(REF) == "mv2"
@@ -109,7 +109,7 @@ def test_add_feature_posts_and_returns_result(tmp_path):
                 "feature": {"featureId": "F2", "featureType": "extrude", "name": "E"},
                 "featureState": {"featureStatus": "OK"},
             })
-        return httpx.Response(200, json={"microversionId": "mv2"})
+        return httpx.Response(200, json={"microversion": "mv2"})
 
     b, _ = make(tmp_path, handler)
     r = b.add_feature(REF, {"type": "extrude"}, "mv1")
@@ -142,7 +142,7 @@ def test_redirected_request_signed_with_redirected_path(tmp_path):
         seen.append(req)
         if len(seen) == 1:
             return httpx.Response(302, headers={"Location": "/api/moved?x=Y"})
-        return httpx.Response(200, json={"microversionId": "m"})
+        return httpx.Response(200, json={"microversion": "m"})
 
     b, _ = make(tmp_path, handler)
     b.get_microversion(REF)
@@ -273,7 +273,7 @@ def _post_capture(tmp_path, reply, feats=()):
             bodies.append(json.loads(req.content))
             return httpx.Response(200, json=reply)
         if req.url.path.endswith("currentmicroversion"):
-            return httpx.Response(200, json={"microversionId": "mv-after"})
+            return httpx.Response(200, json={"microversion": "mv-after"})
         return httpx.Response(200, json=_vars_get("mv1", feats))
     b, ledger = make(tmp_path, handler)
     return b, bodies, ledger
@@ -384,7 +384,7 @@ def test_nonce_is_25_alphanumerics(tmp_path):
 
     def handler(req):
         seen.append(req.headers["On-Nonce"])
-        return httpx.Response(200, json={"microversionId": "m"})
+        return httpx.Response(200, json={"microversion": "m"})
     b, _ = make(tmp_path, handler)
     b.get_microversion(REF)
     assert len(seen[0]) == 25 and seen[0].isalnum()
@@ -468,3 +468,9 @@ def test_redirect_path_tricks_refused(tmp_path, loc):
     b, _ = make(tmp_path, lambda r: httpx.Response(302, headers={"Location": loc}))
     with pytest.raises(RuntimeError, match="redirect"):
         b.get_microversion(REF)
+
+
+def test_currentmicroversion_real_live_shape(tmp_path):
+    # Real response observed live (id replaced): {"microversion": "<24 hex>"}
+    b, _ = make(tmp_path, lambda r: httpx.Response(200, text='{\n  "microversion" : "e60aef496d4a32279c30e372"\n}'))
+    assert b.get_microversion(REF) == "e60aef496d4a32279c30e372"
