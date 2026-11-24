@@ -260,7 +260,11 @@ class OnshapeBackend:
             raise RuntimeError("unexpected Onshape response: bad featureId on existing feature")
         body = {"feature": feature_json, "serializationVersion": SERIALIZATION_VERSION}
         data = self._write(feature_update_path(ref, feature_id), body, expected_microversion)
-        return self._feature_result(ref, data, expected_microversion, "update_feature")
+        result = self._feature_result(ref, data, expected_microversion, "update_feature")
+        if result.feature.id != feature_id:
+            raise PostWriteError(
+                "unexpected Onshape response: update_feature reply is for a different feature")
+        return result
 
     def _feature_result(self, ref: DocRef, data: dict, expected_microversion: str,
                         what: str) -> WriteResult:

@@ -218,12 +218,15 @@ def _apply_feature(ctx: Context, ref: DocRef, start, feature_json: dict, extra: 
     # note_write splices our feature into the cached list; that is only sound
     # because every write passes expected_microversion (nothing else changed).
     ctx.reread.pop(ref, None)  # a successful write supersedes any earlier hint
-    if result.exact and (feature_id is None or is_last):
+    # An update reply without the full `parameters` list cannot be spliced: the cache
+    # would keep a stale or partial raw. Treat it like an inexact write and refetch.
+    full_reply = feature_id is None or isinstance(result.feature.raw.get("parameters"), list)
+    if result.exact and full_reply and (feature_id is None or is_last):
         ctx.last_read[ref] = result.microversion
         ctx.cache.note_write(ref, result.microversion, result.feature,
                              expected_microversion=expected)
         extra = dict(extra)
-    elif result.exact:
+    elif result.exact and full_reply:
         ctx.lose_track(ref, _MIDTREE)
         extra = {**extra, "note": _MIDTREE}
     else:
@@ -340,6 +343,11 @@ def cad_feature_update(ctx: Context, ref: DocRef, feature: str, params: dict,
         return _reply(ctx, start, False,
                       error="no full copy of this feature; re-read with cad_read first")
 
+    namespace = f.raw.get("namespace")
+    if isinstance(namespace, str) and namespace:  # live custom features carry it apart from featureType
+        return _reply(ctx, start, False, error=(
+            f"refused, nothing written: CUSTOM_FEATURE: {clean(f.type)} is a custom (FeatureScript) "
+            "feature; generic writes support native types only"))
     spec_by_type = {s.type: s for s in specs}
     index = fl.features.index(f)
     prepared = prepare(spec_by_type, f.type, params, fl, mode="update", self_index=index,

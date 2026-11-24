@@ -10,7 +10,7 @@ from onshape_duet.cache import DocCache
 from onshape_duet.config import Config
 from onshape_duet.docref import DocRef
 from test_onshape_backend import make as make_onshape
-from onshape_duet.tools import (_MIDTREE, Context, cad_feature_add, cad_feature_update,
+from onshape_duet.tools import (_MIDTREE, _REFETCHED, Context, cad_feature_add, cad_feature_update,
                                 cad_read, cad_specs)
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
@@ -166,3 +166,61 @@ def test_onshape_update_feature_posts_to_featureid_path(tmp_path, monkeypatch):
         b2.update_feature(REF, "F2", {}, "mv1")
     with pytest.raises(RuntimeError, match="bad featureId"):
         b.update_feature(REF, "a/b", {}, "mv1")
+
+
+def test_onshape_update_feature_rejects_reply_for_other_feature(tmp_path, monkeypatch):
+    monkeypatch.setenv("ONSHAPE_ACCESS_KEY", "k")
+    monkeypatch.setenv("ONSHAPE_SECRET_KEY", "s")
+
+    def handler(req):
+        if req.method == "POST":
+            return httpx.Response(200, json={
+                "feature": {"featureId": "F9", "featureType": "cPlane", "name": "E"},
+                "featureState": {"featureStatus": "OK"}})
+        return httpx.Response(200, json={"microversion": "mv2"})
+
+    from onshape_duet.backends.base import PostWriteError
+    b, _ = make_onshape(tmp_path, handler, 20)
+    with pytest.raises(PostWriteError, match="different feature"):
+        b.update_feature(REF, "F2", {"featureType": "cPlane"}, "mv1")
+
+
+def test_update_reply_without_parameters_is_not_spliced(tmp_path):
+    ctx, fake = make(tmp_path)
+    real = fake.update_feature
+
+    def bare(ref, feature_id, feature_json, expected_microversion):
+        res = real(ref, feature_id, feature_json, expected_microversion)
+        import dataclasses
+        return dataclasses.replace(res, feature=dataclasses.replace(res.feature, raw={}))
+
+    fake.update_feature = bare
+    out = cad_feature_update(ctx, REF, "P2", {"offset": "9 mm"}, apply=True)  # P2 is last
+    assert out["applied"] is True and out["note"] == _REFETCHED
+    follow = cad_feature_update(ctx, REF, "P2", {"offset": "1 mm"}, apply=True)
+    assert follow["applied"] is False and "cad_read" in follow["error"]
+
+
+def test_update_refuses_custom_feature_by_namespace(tmp_path):
+    ctx, fake = make(tmp_path, planes=())
+    fake.add_feature(REF, {"btType": "BTMFeature-134", "featureType": "myThing", "namespace": "e123::m456",
+                           "name": "Cust", "parameters": []}, fake.get_microversion(REF))
+    cad_read(ctx, REF)
+    out = cad_feature_update(ctx, REF, "Cust", {"x": "1 mm"})
+    assert "CUSTOM_FEATURE" in out["error"]
+    assert fake.calls["update_feature"] == 0
+
+
+def test_update_sends_human_query_byte_for_byte(tmp_path):
+    ctx, fake = make(tmp_path, planes=())
+    query = {"btType": "BTMParameterQueryList-148", "parameterId": "entities",
+             "queries": [{"btType": "BTMIndividualQuery-138", "deterministicIds": ["JHD", "JHF"]}]}
+    fake.add_feature(REF, {"btType": "BTMFeature-134", "featureType": "cPlane", "name": "Human",
+                           "parameters": [query, {"btType": "BTMParameterQuantity-147",
+                                                  "parameterId": "offset", "expression": "5 mm"}]},
+                     fake.get_microversion(REF))
+    cad_read(ctx, REF)
+    out = cad_feature_update(ctx, REF, "Human", {"offset": "9 mm"}, apply=True)
+    assert out["applied"] is True
+    sent = [p for p in fake.last_feature_json["parameters"] if p["parameterId"] == "entities"][0]
+    assert json.dumps(sent, sort_keys=False) == json.dumps(query, sort_keys=False)
