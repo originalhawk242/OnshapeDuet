@@ -16,10 +16,18 @@ import numpy as np
 from .spec import Sketch, SketchSpecError, resolve_ref
 
 TOL = 1e-9
-# Residuals are compared to REL_TOL * sketch scale (largest |coordinate| or
-# |dimension value|; squared for quadratic rows). 1e-6 of scale is far above
-# float noise (~1e-15) yet far below any real design error (1 micron on 1 m).
+# Each residual row is compared to a tolerance built from the size of ITS OWN
+# entities, never one sketch-wide scale (a far-away point must not loosen the
+# check on a small line, and a tiny feature near the origin must not tighten it
+# to nothing):
+#   size = max(extent of the row's variables, |dimension value|)
+#   tol  = max(REL_TOL * size, FLOAT_EPS * magnitude, ABS_TOL)   (squared for quadratic rows)
+# REL_TOL = 1e-6 of size is far above float noise yet far below any real design
+# error (1 micron on 1 m); FLOAT_EPS * magnitude is the noise floor of the
+# coordinates themselves; ABS_TOL (1 nanometre) is the floor near zero.
 REL_TOL = 1e-6
+FLOAT_EPS = 1e-12
+ABS_TOL = 1e-6
 _NPTS = {"point": 1, "line": 2, "circle": 1}
 
 
@@ -79,6 +87,19 @@ class Row:
     jac: np.ndarray
     fn: Callable[[np.ndarray], float]  # residual as a function of the variable vector
     degree: int  # 1 linear, 2 quadratic (scales with length squared)
+    value: float = 0.0  # driving value of a dimension row (millimetres)
+
+
+def row_tolerance(row: Row, x: np.ndarray) -> float:
+    idx = np.flatnonzero(row.jac)
+    vals = x[idx] if idx.size else np.zeros(0)
+    extent = float(vals.max() - vals.min()) if vals.size else 0.0
+    magnitude = float(np.abs(vals).max()) if vals.size else 0.0
+    size = max(extent, abs(row.value))
+    magnitude = max(magnitude, abs(row.value))
+    if row.degree == 1:
+        return max(REL_TOL * size, FLOAT_EPS * magnitude, ABS_TOL)
+    return max(REL_TOL * size ** 2, FLOAT_EPS * magnitude ** 2, ABS_TOL ** 2)
 
 
 def _skipped(sketch: Sketch, refs) -> bool:
@@ -95,8 +116,8 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
     n = len(x)
     rows: list[Row] = []
 
-    def emit(label, jac, fn, degree=1):
-        rows.append(Row(label, jac, fn, degree))
+    def emit(label, jac, fn, degree=1, value=0.0):
+        rows.append(Row(label, jac, fn, degree, value))
 
     def unit(*terms):
         r = np.zeros(n)
@@ -188,13 +209,14 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
                 raise SketchSpecError(f"{what}: line {d.refs[0]!r} has zero length at its nominal position")
             ux, uy = dx / length, dy / length
             emit(what, unit((o + 2, ux), (o, -ux), (o + 3, uy), (o + 1, -uy)),
-                 lambda v, o=o, val=val: float(np.hypot(v[o + 2] - v[o], v[o + 3] - v[o + 1])) - val)
+                 lambda v, o=o, val=val: float(np.hypot(v[o + 2] - v[o], v[o + 3] - v[o + 1])) - val,
+                 value=val)
         elif d.type == "diameter":
             nrefs(d.refs, 1, what)
             ent, o = lay.entity(d.refs[0], what)
             if ent.type != "circle":
                 raise SketchSpecError(f"{what}: {d.refs[0]!r} is not a circle")
-            emit(what, unit((o + 2, 2.0)), lambda v, o=o, val=val: 2.0 * v[o + 2] - val)
+            emit(what, unit((o + 2, 2.0)), lambda v, o=o, val=val: 2.0 * v[o + 2] - val, value=val)
         else:  # distance_h / distance_v
             # Onshape's distance is unsigned: residual |delta| - val, with the
             # Jacobian sign taken from the nominal sign of delta.
@@ -208,7 +230,8 @@ def build_rows(sketch: Sketch) -> tuple[list[Row], _Layout]:
             sgn = -1.0 if (x[a] - (x[b] if b is not None else 0.0)) < 0 else 1.0
             terms = [(a, sgn)] + ([(b, -sgn)] if b is not None else [])
             emit(what, unit(*terms),
-                 lambda v, a=a, b=b, val=val: abs(v[a] - (v[b] if b is not None else 0.0)) - val)
+                 lambda v, a=a, b=b, val=val: abs(v[a] - (v[b] if b is not None else 0.0)) - val,
+                 value=val)
     return rows, lay
 
 
@@ -220,14 +243,13 @@ def analyze(sketch: Sketch) -> DofReport:
     jac = np.vstack([r.jac for r in rows]) if rows else np.zeros((0, n_vars))
     res = np.array([r.fn(x0) for r in rows], dtype=float)
 
-    scale = max([abs(c) for c in lay.x] + [abs(d.value) for d in sketch.dimensions] + [0.0])
-    if scale == 0.0:
-        scale = 1.0
     conflicts: list[str] = []
     for r, val in zip(rows, res):
-        tol = REL_TOL * scale ** r.degree
+        tol = row_tolerance(r, x0)
         if abs(val) > tol:
             msg = f"{r.label}: residual {val:.6g} at the spec coordinates (tolerance {tol:.3g})"
+            if r.label.endswith("(ground)"):
+                msg += "; the point is not at the origin (ground pins a point to (0, 0))"
             if msg not in conflicts:
                 conflicts.append(msg)
 

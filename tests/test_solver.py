@@ -396,3 +396,48 @@ def test_two_point_horizontal_serializes():
     con = to_feature_json(sk, "S")["constraints"][0]
     assert con["constraintType"] == "HORIZONTAL"
     assert [p["parameterId"] for p in con["parameters"]] == ["localFirst", "localSecond"]
+
+
+# --- wave 2: per-row tolerance (each row scaled by its own entities) ---
+
+def test_far_away_point_does_not_loosen_a_small_lines_length_check():
+    spec = {"plane": "Front",
+            "entities": [{"id": "far", "type": "point", "x": 1e9, "y": 0},
+                         {"id": "l", "type": "line", "start": [0, 0], "end": [60, 0]}],
+            "constraints": [], "dimensions": [{"type": "length", "ref": "l", "value": 60.001}]}
+    rep = run(spec)
+    assert rep.conflicts and "dimension #1" in rep.conflicts[0]
+    spec["dimensions"][0]["value"] = 60
+    assert run(spec).conflicts == []
+
+
+def test_zero_distance_between_points_1e_minus_9_apart_is_not_a_conflict_near_the_origin():
+    spec = {"plane": "Front",
+            "entities": [{"id": "a", "type": "point", "x": 0, "y": 0},
+                         {"id": "b", "type": "point", "x": 1e-9, "y": 0}],
+            "constraints": [], "dimensions": [{"type": "distance_h", "refs": ["a", "b"], "value": 0}]}
+    rep = run(spec)
+    assert rep.conflicts == [] and rep.redundant is False
+
+
+def test_a_real_error_near_the_origin_is_still_a_conflict():
+    spec = {"plane": "Front",
+            "entities": [{"id": "a", "type": "point", "x": 0, "y": 0},
+                         {"id": "b", "type": "point", "x": 0.001, "y": 0}],
+            "constraints": [], "dimensions": [{"type": "distance_h", "refs": ["a", "b"], "value": 0}]}
+    assert run(spec).conflicts
+
+
+def test_large_sketch_float_noise_is_not_a_conflict():
+    spec = {"plane": "Front",
+            "entities": [{"id": "l", "type": "line", "start": [1e6, 1e6], "end": [1e6 + 60, 1e6]}],
+            "constraints": [{"type": "horizontal", "refs": ["l"]}],
+            "dimensions": [{"type": "length", "ref": "l", "value": 60}]}
+    assert run(spec).conflicts == []
+
+
+def test_ground_conflict_message_says_point_is_not_at_the_origin():
+    spec = {"plane": "Front",
+            "entities": [{"id": "p", "type": "point", "x": 5, "y": 5}],
+            "constraints": [{"type": "ground", "refs": ["p"]}], "dimensions": []}
+    assert any("point is not at the origin" in c for c in run(spec).conflicts)
