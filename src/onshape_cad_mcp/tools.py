@@ -8,7 +8,9 @@ before the write.
 from __future__ import annotations
 
 import os
+import functools
 import re
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -38,6 +40,9 @@ class Context:
     config: Config
     last_read: dict[DocRef, str] = field(default_factory=dict)
     config_path: Path | None = None
+    # MCP runs sync tools in worker threads; one RLock serialises every tool body
+    # (last_read, DocCache and the ledger-delta request counts are shared state).
+    lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
 
     def read(self, ref: DocRef) -> FeatureList:
         fl = self.cache.read(ref)
@@ -58,6 +63,14 @@ class Context:
                 return fl, mv
         fl = self.cache.read(ref)
         return fl, fl.microversion
+
+
+def _locked(fn):
+    @functools.wraps(fn)
+    def wrapper(ctx: Context, *args, **kwargs):
+        with ctx.lock:
+            return fn(ctx, *args, **kwargs)
+    return wrapper
 
 
 _STALE = ("stale: the document changed since it was last read; "
@@ -103,6 +116,7 @@ def _reply(ctx: Context, start_used, applied: bool | str, **extra) -> dict:
             "requests": _spent(ctx, start_used), "budget_left": _ledger_numbers(ctx)[1]}
 
 
+@_locked
 def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = False) -> dict:
     start = _start(ctx)
     if apply and ref not in ctx.last_read:
@@ -160,6 +174,7 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
     return _reply(ctx, start, True, **done)
 
 
+@_locked
 def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: bool = False) -> dict:
     start = _start(ctx)
     if not isinstance(name, str) or not _VAR_NAME.fullmatch(name):
@@ -202,6 +217,7 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     return _reply(ctx, start, True, **extra)
 
 
+@_locked
 def cad_status(ctx: Context) -> dict:
     """Budget and credential status. Makes zero Onshape requests."""
     cfg = ctx.config
@@ -220,6 +236,7 @@ def cad_status(ctx: Context) -> dict:
     return out
 
 
+@_locked
 def cad_read(ctx: Context, ref: DocRef) -> str:
     """Outline of the Part Studio (features + variables). Every sketch is
     `not assessed` (R6: reading existing sketches into DOF reports is out of scope)."""

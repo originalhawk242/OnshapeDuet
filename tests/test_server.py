@@ -233,3 +233,66 @@ def test_unreferenced_derived_variable_does_not_block_sketches(tmp_path):
     bad = {**spec, "dimensions": [{"type": "length", "ref": "l", "value": "#h"}]}
     out = cad_sketch(ctx, REF, "S", bad)
     assert "cannot evaluate" in out["error"] and "'h'" in out["error"]
+
+
+# --- final-review fixes: I5 (concurrent tool calls share one Context) ---
+
+class _Slow(FakeBackend):
+    """Sleeps inside every backend call so unlocked tool calls certainly overlap."""
+    def _enter(self, method):
+        super()._enter(method)
+        import time
+        time.sleep(0.03)
+
+
+def _race(fns):
+    import threading
+    barrier = threading.Barrier(len(fns))
+    results = [None] * len(fns)
+
+    def run(i, fn):
+        barrier.wait()
+        results[i] = fn()
+    ts = [threading.Thread(target=run, args=(i, f)) for i, f in enumerate(fns)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join(10)
+    return results
+
+
+def test_concurrent_reads_do_not_lose_or_double_count_charges(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.json", 100)
+    backend = _Slow(ledger)
+    ctx = Context(backend, DocCache(backend), ledger, Config(budget=100))
+    other = DocRef("d" * 24, "e" * 24, "f" * 24)
+    outs = _race([lambda: cad_read(ctx, REF), lambda: cad_read(ctx, other)])
+    counted = [int(o.splitlines()[-1].split("requests used: ")[1].split(",")[0]) for o in outs]
+    assert sum(counted) == ledger.used == 4  # each call reports exactly its own requests
+
+
+def test_concurrent_apply_and_read_keep_last_read_consistent(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.json", 100)
+    backend = _Slow(ledger)
+    ctx = Context(backend, DocCache(backend), ledger, Config(budget=100))
+    cad_read(ctx, REF)
+    outs = _race([lambda: cad_variable(ctx, REF, "w", "1 mm", apply=True),
+                  lambda: cad_read(ctx, REF)])
+    assert outs[0]["applied"] is True
+    # whichever order they ran in, last_read must be the document's real version
+    assert ctx.last_read[REF] == backend.get_microversion(REF)
+    assert outs[0]["requests"] == 1
+
+
+def test_server_tools_hold_the_context_lock(tmp_path):
+    ctx, _, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    held = []
+    real = ctx.backend.get_microversion
+
+    def spy(ref):
+        held.append(ctx.lock._is_owned())
+        return real(ref)
+    ctx.backend.get_microversion = spy
+    asyncio.run(mcp.call_tool("cad_read", {"url": f"https://cad.onshape.com/documents/{'a'*24}/w/{'b'*24}/e/{'c'*24}"}))
+    assert held and all(held)
