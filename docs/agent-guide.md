@@ -8,6 +8,8 @@ Workflow: `cad_status` -> `cad_read` -> dry run -> show the owner -> apply -> `c
 4. Show the dry-run result to the owner and get a yes.
 5. Apply (`apply=True`), then `cad_read` again to confirm.
 
+If a write reply says `applied: "unknown"`, or carries a `note` telling you to re-read (for example after creating a variable), run `cad_read` before anything else: the write may have landed, and the next write is refused until you do. A `REGEN_STATUS` error finding means Onshape wrote the feature but it does not regenerate cleanly.
+
 ## REFUSE vs WARN
 - REFUSE: the sketch has a defect (for example conflicting constraints). Nothing is written, even with `apply=True`. Fix the spec.
 - WARN: advice (for example a sketch that is not fully constrained). The write is allowed; tell the owner.
