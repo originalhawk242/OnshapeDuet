@@ -404,6 +404,12 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     try:
         expected = ctx.last_read[ref]
         _backstop(ctx, ref, expected)
+        # Decided at the pinned version, before the write (as in _apply_feature): only
+        # an update of the last feature leaves the cached list valid.
+        cached = ctx.cache.peek(ref)
+        is_last = (existing is not None and cached is not None
+                   and cached.microversion == expected and bool(cached.features)
+                   and cached.features[-1].id == existing.id)
         result = ctx.backend.set_variable(ref, name, expression,
                                           expected_microversion=expected,
                                           feature_id=existing.id if existing else None)
@@ -429,8 +435,11 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     if not result.exact:
         ctx.lose_track(ref, _REFETCHED)
         return _reply(ctx, start, True, **extra, note=_REFETCHED)
-    new_mv = result.microversion
     ctx.reread.pop(ref, None)
+    if existing and not is_last:  # later features may have regenerated; the cache can't know
+        ctx.lose_track(ref, _MIDTREE)
+        return _reply(ctx, start, True, **extra, note=_MIDTREE)
+    new_mv = result.microversion
     ctx.last_read[ref] = new_mv
     # An updated variable keeps its feature id, so the cache can be spliced; a new
     # one has an unknown id, so the entry is dropped (the next write needs cad_read).

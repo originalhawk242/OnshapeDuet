@@ -5,7 +5,7 @@ from onshape_duet.budget import Ledger
 from onshape_duet.cache import DocCache
 from onshape_duet.config import Config
 from onshape_duet.docref import DocRef
-from onshape_duet.tools import Context, cad_variable
+from onshape_duet.tools import _MIDTREE, Context, cad_read, cad_variable
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 
@@ -281,7 +281,8 @@ def test_successful_write_clears_the_hint(env):
     assert REF not in ctx.reread                         # a read clears it
     cad_variable(ctx, REF, "h", "5 mm", apply=True)     # creation again
     ctx.read(REF)
-    assert cad_variable(ctx, REF, "w", "9 mm", apply=True)["applied"] is True  # update
+    # update the last variable: a mid-tree update now leaves a re-read hint on purpose
+    assert cad_variable(ctx, REF, "h", "9 mm", apply=True)["applied"] is True
     assert REF not in ctx.reread
 
 
@@ -294,3 +295,31 @@ def test_refuses_to_convert_a_non_length_variable(env):
     ctx.read(REF)
     out = cad_variable(ctx, REF, "count", "5 mm", apply=True)
     assert out["applied"] is False and "ANGLE" in out["error"] and "nothing was written" in out["error"]
+
+
+def test_variable_update_midtree_demands_reread(env):
+    ctx, backend, _ = env
+    backend._doc(REF).variables["w"] = "10 mm"
+    backend.add_feature(REF, {"featureType": "cPlane", "name": "P", "parameters": []},
+                        backend.get_microversion(REF))
+    cad_read(ctx, REF)
+    out = cad_variable(ctx, REF, "w", "20 mm", apply=True)
+    assert out["applied"] is True and out["note"] == _MIDTREE
+    assert REF not in ctx.last_read
+    nxt = cad_variable(ctx, REF, "w", "30 mm", apply=True)
+    assert nxt["applied"] is False and nxt["error"] == _MIDTREE
+    cad_read(ctx, REF)
+    assert cad_variable(ctx, REF, "w", "30 mm", apply=True)["applied"] is True
+
+
+def test_variable_update_last_still_splices(env):
+    ctx, backend, _ = env
+    backend.add_feature(REF, {"featureType": "cPlane", "name": "P", "parameters": []},
+                        backend.get_microversion(REF))
+    backend._doc(REF).variables["w"] = "10 mm"  # created after P, so it is the last feature
+    cad_read(ctx, REF)
+    out = cad_variable(ctx, REF, "w", "20 mm", apply=True)
+    assert out["applied"] is True and "note" not in out
+    assert ctx.last_read[REF] == backend.get_microversion(REF)
+    again = cad_variable(ctx, REF, "w", "30 mm", apply=True)
+    assert again["applied"] is True and again["old"] == "20 mm"
