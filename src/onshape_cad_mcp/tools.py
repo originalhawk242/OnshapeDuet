@@ -14,7 +14,7 @@ from pathlib import Path
 
 import httpx
 
-from .backends.base import Backend, StaleVersion
+from .backends.base import Backend, PostWriteError, StaleVersion
 from .budget import BudgetExceeded, Ledger
 from .cache import DocCache
 from .config import Config
@@ -72,7 +72,16 @@ def _spent(ctx: Context, start) -> object:
     return used - start
 
 
-def _reply(ctx: Context, start_used, applied: bool, **extra) -> dict:
+def _unknown(ctx: Context, start, ref: DocRef, detail: str, **extra) -> dict:
+    """The write was sent but its outcome is unknown: drop the cache entry and do
+    NOT advance last_read, so a retry cannot silently duplicate the write."""
+    ctx.cache.invalidate(ref)
+    return _reply(ctx, start, "unknown",
+                  error=f"{clean(detail, 300)}: the write may have landed; "
+                        "re-read with cad_read before retrying", **extra)
+
+
+def _reply(ctx: Context, start_used, applied: bool | str, **extra) -> dict:
     return {"applied": applied, **extra,
             "requests": _spent(ctx, start_used), "budget_left": _ledger_numbers(ctx)[1]}
 
@@ -102,11 +111,14 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
 
     try:
         result = ctx.backend.add_feature(ref, feature_json, expected_microversion=ctx.last_read[ref])
+    except PostWriteError as e:
+        return _unknown(ctx, start, ref, str(e), **extra)
+    except StaleVersion as e:
+        if e.may_have_landed:
+            return _unknown(ctx, start, ref, str(e), **extra)
+        return _reply(ctx, start, False, error=_STALE, **extra)
     except _FAILURES as e:
         return _reply(ctx, start, False, error=clean(e, 300), **extra)
-    except StaleVersion:
-        return _reply(ctx, start, False,
-                      error=_STALE, **extra)
     # note_write splices our feature into the cached list; that is only sound
     # because every write passes expected_microversion (nothing else changed).
     ctx.last_read[ref] = result.microversion
@@ -140,10 +152,14 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     try:
         new_mv = ctx.backend.set_variable(ref, name, expression,
                                           expected_microversion=ctx.last_read[ref])
+    except PostWriteError as e:
+        return _unknown(ctx, start, ref, str(e), **extra)
+    except StaleVersion as e:
+        if e.may_have_landed:
+            return _unknown(ctx, start, ref, str(e), **extra)
+        return _reply(ctx, start, False, error=_STALE, **extra)
     except _FAILURES as e:
         return _reply(ctx, start, False, error=clean(e, 300), **extra)
-    except StaleVersion:
-        return _reply(ctx, start, False, error=_STALE, **extra)
     ctx.last_read[ref] = new_mv
     ctx.cache.note_write(ref, new_mv)  # no feature: cache drops the entry (intended)
     return _reply(ctx, start, True, **extra)

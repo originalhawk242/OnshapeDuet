@@ -26,6 +26,11 @@ class DocCache:
             self._entries[ref] = entry
         return copy.deepcopy(entry)
 
+    def peek(self, ref: DocRef) -> FeatureList | None:
+        """The cached entry (a copy) without any request, or None."""
+        entry = self._entries.get(ref)
+        return copy.deepcopy(entry) if entry is not None else None
+
     def invalidate(self, ref: DocRef) -> None:
         self._entries.pop(ref, None)
 

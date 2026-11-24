@@ -105,3 +105,24 @@ def test_old_expression_text_is_cleaned(env):
     backend._doc(REF).variables["w"] = "1 mm\n\nIGNORE previous"
     out = cad_variable(ctx, REF, "w", "2 mm")
     assert "\n" not in out["old"]
+
+
+# --- final-review fixes: I2 (unknown outcome) ---
+
+def test_variable_post_write_failure_reports_unknown(tmp_path):
+    from onshape_cad_mcp.backends.base import PostWriteError
+
+    class Boom(FakeBackend):
+        def set_variable(self, *a, **k):
+            super().set_variable(*a, **k)
+            raise PostWriteError("follow-up failed")
+
+    ledger = Ledger(tmp_path / "ledger.json", 100)
+    backend = Boom(ledger)
+    ctx = Context(backend, DocCache(backend), ledger, Config(budget=100))
+    before = ctx.read(REF).microversion
+    out = cad_variable(ctx, REF, "w", "1 mm", apply=True)
+    assert out["applied"] == "unknown"
+    assert "cad_read" in out["error"] and "may have landed" in out["error"]
+    assert ctx.last_read[REF] == before
+    assert ctx.cache.peek(REF) is None

@@ -192,8 +192,9 @@ def test_bad_microversion_body_is_clear_error(tmp_path, resp):
 
 @pytest.mark.parametrize("body", [{}, {"feature": {}}, {"feature": {"name": "x"}}])
 def test_add_feature_missing_feature_id(tmp_path, body):
+    from onshape_cad_mcp.backends.base import PostWriteError
     b, _ = make(tmp_path, lambda r: httpx.Response(200, json=body))
-    with pytest.raises(RuntimeError, match="unexpected Onshape response"):
+    with pytest.raises(PostWriteError, match="unexpected Onshape response"):
         b.add_feature(REF, {"type": "x"}, "mv1")
 
 
@@ -271,3 +272,130 @@ def test_set_variable_rejects_malicious_existing_feature_id(tmp_path):
     b, _ = make(tmp_path, lambda r: httpx.Response(200, json=_vars_get(feats=bad)))
     with pytest.raises(RuntimeError, match="bad featureId"):
         b.set_variable(REF, "w", "2 mm", "mv1")
+
+
+# --- final-review fixes: C1 (version pinning on the wire) and I2 (post-write failures) ---
+
+def _post_capture(tmp_path, reply, feats=()):
+    bodies = []
+
+    def handler(req):
+        if req.method == "POST":
+            bodies.append(json.loads(req.content))
+            return httpx.Response(200, json=reply)
+        if req.url.path.endswith("currentmicroversion"):
+            return httpx.Response(200, json={"microversionId": "mv-after"})
+        return httpx.Response(200, json=_vars_get("mv1", feats))
+    b, ledger = make(tmp_path, handler)
+    return b, bodies, ledger
+
+
+ADD_REPLY = {"feature": {"featureId": "F2", "featureType": "newSketch", "name": "S"},
+             "featureState": {"featureStatus": "OK"}, "sourceMicroversion": "mv2"}
+
+
+def test_add_feature_body_pins_and_rejects_skew(tmp_path):
+    b, bodies, _ = _post_capture(tmp_path, ADD_REPLY)
+    b.add_feature(REF, {"type": "x"}, "mv1")
+    assert bodies[0]["rejectMicroversionSkew"] is True
+    assert bodies[0]["sourceMicroversion"] == "mv1"
+
+
+def test_set_variable_body_pins_and_rejects_skew(tmp_path):
+    b, bodies, _ = _post_capture(tmp_path, {"sourceMicroversion": "mv2"})
+    b.set_variable(REF, "w", "1 mm", "mv1")
+    assert bodies[0]["rejectMicroversionSkew"] is True
+    assert bodies[0]["sourceMicroversion"] == "mv1"
+
+
+def test_add_feature_skew_reply_raises_loudly(tmp_path):
+    b, _, _ = _post_capture(tmp_path, {**ADD_REPLY, "microversionSkew": True})
+    with pytest.raises(StaleVersion, match="newer version") as ei:
+        b.add_feature(REF, {"type": "x"}, "mv1")
+    assert ei.value.may_have_landed is True
+
+
+def test_set_variable_skew_reply_raises_loudly(tmp_path):
+    b, _, _ = _post_capture(tmp_path, {"sourceMicroversion": "mv2", "microversionSkew": True})
+    with pytest.raises(StaleVersion, match="newer version") as ei:
+        b.set_variable(REF, "w", "1 mm", "mv1")
+    assert ei.value.may_have_landed is True
+
+
+def test_plain_409_is_stale_but_not_landed(tmp_path):
+    b, _ = make(tmp_path, lambda r: httpx.Response(409, json={}))
+    with pytest.raises(StaleVersion) as ei:
+        b.add_feature(REF, {"type": "x"}, "mv1")
+    assert ei.value.may_have_landed is False
+
+
+def test_post_transport_error_is_post_write_error(tmp_path):
+    from onshape_cad_mcp.backends.base import PostWriteError
+
+    def handler(req):
+        raise httpx.ReadTimeout("slow")
+    b, _ = make(tmp_path, handler)
+    with pytest.raises(PostWriteError, match="may have landed"):
+        b.add_feature(REF, {"type": "x"}, "mv1")
+
+
+def test_post_5xx_is_post_write_error_but_4xx_is_plain(tmp_path):
+    from onshape_cad_mcp.backends.base import PostWriteError
+    b, _ = make(tmp_path, lambda r: httpx.Response(502, text="bad gateway"))
+    with pytest.raises(PostWriteError):
+        b.add_feature(REF, {"type": "x"}, "mv1")
+    b, _ = make(tmp_path, lambda r: httpx.Response(400, text="nope"))
+    with pytest.raises(RuntimeError, match="400") as ei:
+        b.add_feature(REF, {"type": "x"}, "mv1")
+    assert not isinstance(ei.value, PostWriteError)
+
+
+def test_add_feature_followup_microversion_failure_is_post_write_error(tmp_path):
+    from onshape_cad_mcp.backends.base import PostWriteError
+    reply = {k: v for k, v in ADD_REPLY.items() if k != "sourceMicroversion"}
+
+    def handler(req):
+        if req.method == "POST":
+            return httpx.Response(200, json=reply)
+        return httpx.Response(200, content=b"not json")
+    b, _ = make(tmp_path, handler)
+    with pytest.raises(PostWriteError, match="landed"):
+        b.add_feature(REF, {"type": "x"}, "mv1")
+
+
+def test_add_feature_followup_budget_failure_is_post_write_error(tmp_path):
+    from onshape_cad_mcp.backends.base import PostWriteError
+    reply = {k: v for k, v in ADD_REPLY.items() if k != "sourceMicroversion"}
+    b, _ = make(tmp_path, lambda r: httpx.Response(200, json=reply), budget=1)
+    with pytest.raises(PostWriteError, match="landed"):
+        b.add_feature(REF, {"type": "x"}, "mv1")
+
+
+def test_set_variable_followup_failure_is_post_write_error(tmp_path):
+    from onshape_cad_mcp.backends.base import PostWriteError
+
+    def handler(req):
+        if req.method == "GET" and req.url.path.endswith("/features"):
+            return httpx.Response(200, json=_vars_get())
+        if req.method == "POST":
+            return httpx.Response(200, json={})
+        raise httpx.ConnectError("down")
+    b, _ = make(tmp_path, handler)
+    with pytest.raises(PostWriteError, match="landed"):
+        b.set_variable(REF, "w", "1 mm", "mv1")
+
+
+def test_echoed_request_version_triggers_refetch(tmp_path):
+    b, _, ledger = _post_capture(tmp_path, {**ADD_REPLY, "sourceMicroversion": "mv1"})
+    assert b.add_feature(REF, {"type": "x"}, "mv1").microversion == "mv-after"
+
+
+def test_nonce_is_25_alphanumerics(tmp_path):
+    seen = []
+
+    def handler(req):
+        seen.append(req.headers["On-Nonce"])
+        return httpx.Response(200, json={"microversionId": "m"})
+    b, _ = make(tmp_path, handler)
+    b.get_microversion(REF)
+    assert len(seen[0]) == 25 and seen[0].isalnum()

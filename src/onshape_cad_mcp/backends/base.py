@@ -8,7 +8,20 @@ from ..model import FeatureList, Variable, WriteResult
 
 
 class StaleVersion(Exception):
-    """The document changed since the caller last read it."""
+    """The document changed since the caller last read it.
+
+    may_have_landed is True when Onshape reported that the write was applied
+    against a newer version (microversionSkew): the state is then unknown.
+    """
+
+    def __init__(self, message: str = "", may_have_landed: bool = False) -> None:
+        super().__init__(message)
+        self.may_have_landed = may_have_landed
+
+
+class PostWriteError(Exception):
+    """A write was (or may have been) sent, but its outcome is unknown or its
+    follow-up failed. The write may have landed: do not blindly retry."""
 
 
 class Backend(Protocol):

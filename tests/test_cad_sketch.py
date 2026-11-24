@@ -185,3 +185,32 @@ def test_zero_budget_returns_error_dict(tmp_path):
     out = cad_sketch(ctx, REF, "S", SPEC)
     assert out["applied"] is False and "budget" in out["error"]
     assert out["budget_left"] == 0
+
+
+# --- final-review fixes: I2 (unknown outcome) ---
+
+def _unknown_env(tmp_path, exc):
+    from onshape_cad_mcp.backends.base import PostWriteError  # noqa: F401
+
+    class Boom(FakeBackend):
+        def add_feature(self, ref, feature_json, expected_microversion):
+            super().add_feature(ref, feature_json, expected_microversion)
+            raise exc
+
+    ledger = Ledger(tmp_path / "ledger.json", 100)
+    backend = Boom(ledger)
+    return Context(backend, DocCache(backend), ledger, Config(budget=100)), backend
+
+
+@pytest.mark.parametrize("make_exc", [
+    lambda: __import__("onshape_cad_mcp.backends.base", fromlist=["x"]).PostWriteError("follow-up failed"),
+    lambda: __import__("onshape_cad_mcp.backends.base", fromlist=["x"]).StaleVersion("skew", may_have_landed=True),
+])
+def test_sketch_post_write_failure_reports_unknown(tmp_path, make_exc):
+    ctx, backend = _unknown_env(tmp_path, make_exc())
+    before = ctx.read(REF).microversion
+    out = cad_sketch(ctx, REF, "S1", SPEC, apply=True)
+    assert out["applied"] == "unknown"
+    assert "cad_read" in out["error"] and "may have landed" in out["error"]
+    assert ctx.last_read[REF] == before  # not advanced
+    assert ctx.cache.peek(REF) is None  # entry dropped

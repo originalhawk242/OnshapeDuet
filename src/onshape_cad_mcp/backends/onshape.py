@@ -13,16 +13,17 @@ import hmac
 import os
 import re
 import secrets
+import string
 from email.utils import formatdate
 from urllib.parse import quote, urlsplit
 
 import httpx
 
-from ..budget import Ledger
+from ..budget import BudgetExceeded, Ledger
 from ..config import Config
 from ..docref import DocRef, is_valid_id
 from ..model import Feature, FeatureList, Variable, WriteResult
-from .base import StaleVersion
+from .base import PostWriteError, StaleVersion
 
 # --- Unverified endpoint paths (Task 12) -----------------------------------
 _FEATURE_ID = re.compile(r"[A-Za-z0-9_]{1,64}")  # real feature ids are not 24-hex (unverified, Task 12)
@@ -57,6 +58,14 @@ VARIABLE_EXPR_PARAM = "value"
 STALE_STATUSES = (409, 412)
 MAX_REDIRECTS = 5
 JSON = "application/json"
+
+
+_NONCE_CHARS = string.ascii_letters + string.digits
+
+
+def _nonce() -> str:
+    """25 alphanumeric characters (the length/charset Onshape documents)."""
+    return "".join(secrets.choice(_NONCE_CHARS) for _ in range(25))
 
 
 def sign(method: str, path: str, query: str, content_type: str, date: str,
@@ -102,7 +111,7 @@ class OnshapeBackend:
         for _ in range(MAX_REDIRECTS + 1):
             self.ledger.charge(1, f"{method} {path}")
             date = formatdate(usegmt=True)
-            nonce = secrets.token_urlsafe(18)
+            nonce = _nonce()
             headers = {
                 "On-Nonce": nonce,
                 "Date": date,
@@ -143,6 +152,49 @@ class OnshapeBackend:
             raise RuntimeError("unexpected Onshape response: JSON body is not an object")
         return data
 
+    def _write(self, path: str, body: dict, expected_microversion: str) -> dict:
+        """POST a write body and return the parsed reply.
+
+        Every write pins to the microversion Claude read and asks Onshape to
+        reject (not silently apply) a skewed one. After the request is sent the
+        outcome is uncertain, so transport errors, 5xx, unparsable replies and a
+        skew report raise PostWriteError / StaleVersion(may_have_landed=True).
+        """
+        body = {**body, "sourceMicroversion": expected_microversion,
+                "rejectMicroversionSkew": True}
+        try:
+            resp = self._request("POST", path, body=body)
+        except httpx.HTTPError as e:
+            raise PostWriteError(
+                f"transport error during write ({type(e).__name__}); the write may have landed") from e
+        if resp.status_code in STALE_STATUSES:
+            raise StaleVersion(f"document changed (HTTP {resp.status_code})")
+        if 400 <= resp.status_code < 500:
+            self._ok(resp)  # raises the plain API error: the request was rejected
+        try:
+            data = self._ok(resp)
+        except RuntimeError as e:
+            raise PostWriteError(f"unusable reply to a write ({e}); the write may have landed") from e
+        if data.get("microversionSkew") is True:
+            raise StaleVersion(
+                "Onshape reports the write was applied against a newer version "
+                "(microversionSkew); it may have landed. Re-read (cad_read) before retrying",
+                may_have_landed=True)
+        return data
+
+    def _new_microversion(self, ref: DocRef, data: dict, expected_microversion: str) -> str:
+        """Microversion after a landed write; any failure here is PostWriteError."""
+        mv = data.get("sourceMicroversion")
+        try:
+            if isinstance(mv, str) and mv and mv != expected_microversion:
+                return mv
+            # missing, or an echo of the request version (a landed write changes it)
+            return self.get_microversion(ref)
+        except (BudgetExceeded, RuntimeError, httpx.HTTPError) as e:
+            raise PostWriteError(
+                f"the write succeeded but reading the new version failed ({e}); "
+                "the write landed") from e
+
     def get_microversion(self, ref: DocRef) -> str:
         mv = self._ok(self._request("GET", microversion_path(ref))).get("microversionId")
         if not isinstance(mv, str) or not mv:
@@ -170,16 +222,19 @@ class OnshapeBackend:
         return self._variables_of(self._ok(self._request("GET", features_path(ref))))
 
     def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
-        body = {"feature": feature_json, "serializationVersion": SERIALIZATION_VERSION,
-                "sourceMicroversion": expected_microversion}
-        data = self._ok(self._request("POST", features_path(ref), body=body), stale_ok=True)
+        body = {"feature": feature_json, "serializationVersion": SERIALIZATION_VERSION}
+        data = self._write(features_path(ref), body, expected_microversion)
         raw = data.get("feature")
         if not isinstance(raw, dict) or not raw.get("featureId"):
-            raise RuntimeError("unexpected Onshape response: add_feature reply missing feature/featureId")
-        st = {raw["featureId"]: data.get("featureState") or {}}
-        feat = _parse_feature(raw, st)
-        mv = data.get("sourceMicroversion") or self.get_microversion(ref)
-        return WriteResult(feat, mv)
+            raise PostWriteError(
+                "unexpected Onshape response: add_feature reply missing feature/featureId; "
+                "the write may have landed")
+        try:
+            st = {raw["featureId"]: data.get("featureState") or {}}
+            feat = _parse_feature(raw, st)
+        except RuntimeError as e:
+            raise PostWriteError(f"{e}; the write may have landed") from e
+        return WriteResult(feat, self._new_microversion(ref, data, expected_microversion))
 
     def set_variable(self, ref: DocRef, name: str, expression: str, expected_microversion: str) -> str:
         # TODO(Task 12): variable feature JSON and update endpoint are unverified.
@@ -199,8 +254,7 @@ class OnshapeBackend:
         existing = next((f for f in data.get("features", [])
                          if f.get("featureType") == VARIABLE_FEATURE_TYPE
                          and f.get("name") == VARIABLE_NAME_PREFIX + name), None)
-        body = {"feature": feature, "serializationVersion": SERIALIZATION_VERSION,
-                "sourceMicroversion": expected_microversion}
+        body = {"feature": feature, "serializationVersion": SERIALIZATION_VERSION}
         if existing is not None:
             fid = existing.get("featureId")
             if not isinstance(fid, str) or not _FEATURE_ID.fullmatch(fid):
@@ -208,5 +262,5 @@ class OnshapeBackend:
             path = feature_update_path(ref, fid)
         else:
             path = features_path(ref)
-        resp = self._ok(self._request("POST", path, body=body), stale_ok=True)
-        return resp.get("sourceMicroversion") or self.get_microversion(ref)
+        resp = self._write(path, body, expected_microversion)
+        return self._new_microversion(ref, resp, expected_microversion)
