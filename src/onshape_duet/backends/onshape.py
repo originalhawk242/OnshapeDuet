@@ -23,6 +23,7 @@ import httpx
 from ..budget import BudgetExceeded, Ledger
 from ..config import Config
 from ..docref import DocRef, is_valid_id
+from ..generic.specs import FeatureSpec, parse_feature_specs
 from ..model import Feature, FeatureList, Variable, WriteResult, flatten_params
 from ..variables import (VARIABLE_EXPR_PARAM, VARIABLE_FEATURE_NAME, VARIABLE_FEATURE_TYPE, VARIABLE_NAME_PARAM,
                          variables_from_features)
@@ -41,6 +42,10 @@ def _seg(value: str) -> str:
 def features_path(ref: DocRef) -> str:
     return (f"/api/v6/partstudios/d/{_seg(ref.document)}/w/{_seg(ref.workspace)}"
             f"/e/{_seg(ref.element)}/features")
+
+
+def feature_specs_path(ref: DocRef) -> str:
+    return features_path(ref).removesuffix("/features") + "/featurespecs"
 
 
 def feature_update_path(ref: DocRef, feature_id: str) -> str:
@@ -240,6 +245,9 @@ class OnshapeBackend:
 
     def get_variables(self, ref: DocRef) -> list[Variable]:
         return variables_from_features(self.list_features(ref))
+
+    def get_feature_specs(self, ref: DocRef) -> list[FeatureSpec]:
+        return parse_feature_specs(self._ok(self._request("GET", feature_specs_path(ref))))
 
     def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
         body = {"feature": feature_json, "serializationVersion": SERIALIZATION_VERSION}

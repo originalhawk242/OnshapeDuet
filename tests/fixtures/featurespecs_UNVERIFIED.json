@@ -1,0 +1,297 @@
+{
+  "_note": "UNVERIFIED hand-written from OpenAPI; replace with live capture",
+  "featureSpecs": [
+    {
+      "btType": "BTFeatureSpec-129",
+      "featureType": "extrude",
+      "featureTypeName": "Extrude",
+      "namespace": "",
+      "parameters": [
+        {
+          "btType": "BTParameterSpecQuery-174",
+          "parameterId": "entities",
+          "parameterName": "Sketch regions to extrude",
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          }
+        },
+        {
+          "btType": "BTParameterSpecEnum-171",
+          "parameterId": "endBound",
+          "parameterName": "End type",
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          },
+          "options": [
+            "BLIND",
+            "THROUGH_ALL",
+            "UP_TO_NEXT"
+          ],
+          "optionNames": [
+            "Blind",
+            "Through all",
+            "Up to next"
+          ],
+          "enumName": "BoundingType",
+          "namespace": "",
+          "defaultValue": {
+            "btType": "BTMParameterEnum-145",
+            "value": "BLIND",
+            "enumName": "BoundingType"
+          }
+        },
+        {
+          "btType": "BTParameterSpecQuantity-173",
+          "parameterId": "depth",
+          "parameterName": "Depth",
+          "quantityType": "LENGTH",
+          "defaultValue": {
+            "btType": "BTMParameterQuantity-147",
+            "expression": "25 mm"
+          },
+          "ranges": [
+            {
+              "btType": "BTQuantityRange-181",
+              "units": "mm",
+              "defaultValue": 25.0,
+              "minValue": 0,
+              "maxValue": 500
+            }
+          ],
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityOnEqual-180",
+            "parameterId": "endBound",
+            "value": "BLIND"
+          }
+        },
+        {
+          "btType": "BTParameterSpecBoolean-170",
+          "parameterId": "oppositeDirection",
+          "parameterName": "Opposite direction",
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          },
+          "defaultValue": {
+            "btType": "BTMParameterBoolean-144",
+            "value": false
+          }
+        }
+      ]
+    },
+    {
+      "btType": "BTFeatureSpec-129",
+      "featureType": "fillet",
+      "featureTypeName": "Fillet",
+      "namespace": "",
+      "parameters": [
+        {
+          "btType": "BTParameterSpecQuery-174",
+          "parameterId": "entities",
+          "parameterName": "Entities to fillet",
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          }
+        },
+        {
+          "btType": "BTParameterSpecQuantity-173",
+          "parameterId": "radius",
+          "parameterName": "Radius",
+          "quantityType": "LENGTH",
+          "defaultValue": {
+            "btType": "BTMParameterQuantity-147",
+            "expression": "5 mm"
+          },
+          "ranges": [
+            {
+              "btType": "BTQuantityRange-181",
+              "units": "mm",
+              "defaultValue": 5.0,
+              "minValue": 0,
+              "maxValue": 500
+            }
+          ],
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          }
+        }
+      ]
+    },
+    {
+      "btType": "BTFeatureSpec-129",
+      "featureType": "linearPattern",
+      "featureTypeName": "Linear pattern",
+      "namespace": "",
+      "parameters": [
+        {
+          "btType": "BTParameterSpecFeatureList-703",
+          "parameterId": "instanceFunction",
+          "parameterName": "Features to pattern",
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          }
+        },
+        {
+          "btType": "BTParameterSpecQuantity-173",
+          "parameterId": "instanceCount",
+          "parameterName": "Count",
+          "quantityType": "INTEGER",
+          "defaultValue": {
+            "btType": "BTMParameterQuantity-147",
+            "expression": "2"
+          },
+          "ranges": [
+            {
+              "btType": "BTQuantityRange-181",
+              "units": "",
+              "defaultValue": 2.0,
+              "minValue": 0,
+              "maxValue": 500
+            }
+          ],
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          }
+        }
+      ]
+    },
+    {
+      "btType": "BTFeatureSpec-129",
+      "featureType": "cPlane",
+      "featureTypeName": "Plane",
+      "namespace": "",
+      "parameters": [
+        {
+          "btType": "BTParameterSpecQuantity-173",
+          "parameterId": "offset",
+          "parameterName": "Offset",
+          "quantityType": "LENGTH",
+          "defaultValue": {
+            "btType": "BTMParameterQuantity-147",
+            "expression": "10 mm"
+          },
+          "ranges": [
+            {
+              "btType": "BTQuantityRange-181",
+              "units": "mm",
+              "defaultValue": 10.0,
+              "minValue": 0,
+              "maxValue": 500
+            }
+          ],
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          }
+        }
+      ]
+    },
+    {
+      "btType": "BTFeatureSpec-129",
+      "featureType": "holeLike",
+      "featureTypeName": "Hole table",
+      "namespace": "",
+      "parameters": [
+        {
+          "btType": "BTParameterSpecArray-2600",
+          "parameterId": "holes",
+          "parameterName": "Holes",
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          },
+          "parameters": [
+            {
+              "btType": "BTParameterSpecQuantity-173",
+              "parameterId": "diameter",
+              "parameterName": "Diameter",
+              "quantityType": "LENGTH",
+              "defaultValue": {
+                "btType": "BTMParameterQuantity-147",
+                "expression": "6 mm"
+              },
+              "ranges": [
+                {
+                  "btType": "BTQuantityRange-181",
+                  "units": "mm",
+                  "defaultValue": 6.0,
+                  "minValue": 0,
+                  "maxValue": 500
+                }
+              ],
+              "visibilityCondition": {
+                "btType": "BTParameterVisibilityAlwaysShown-5487"
+              }
+            },
+            {
+              "btType": "BTParameterSpecString-175",
+              "parameterId": "label",
+              "parameterName": "Label",
+              "visibilityCondition": {
+                "btType": "BTParameterVisibilityAlwaysShown-5487"
+              },
+              "defaultValue": {
+                "btType": "BTMParameterString-149",
+                "value": "H1"
+              }
+            }
+          ]
+        },
+        {
+          "btType": "BTParameterSpecLookupTablePath-761",
+          "parameterId": "tablePath",
+          "parameterName": "Table",
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          }
+        }
+      ]
+    },
+    {
+      "btType": "BTFeatureSpec-129",
+      "featureType": "newSketch",
+      "featureTypeName": "Sketch",
+      "namespace": "",
+      "parameters": [
+        {
+          "btType": "BTParameterSpecQuery-174",
+          "parameterId": "sketchPlane",
+          "parameterName": "Sketch plane",
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          }
+        }
+      ]
+    },
+    {
+      "btType": "BTFeatureSpec-129",
+      "featureType": "e123::m456",
+      "featureTypeName": "Custom thing",
+      "namespace": "e123::m456",
+      "parameters": [
+        {
+          "btType": "BTParameterSpecQuantity-173",
+          "parameterId": "size",
+          "parameterName": "Size",
+          "quantityType": "LENGTH",
+          "defaultValue": {
+            "btType": "BTMParameterQuantity-147",
+            "expression": "1 mm"
+          },
+          "ranges": [
+            {
+              "btType": "BTQuantityRange-181",
+              "units": "mm",
+              "defaultValue": 1.0,
+              "minValue": 0,
+              "maxValue": 500
+            }
+          ],
+          "visibilityCondition": {
+            "btType": "BTParameterVisibilityAlwaysShown-5487"
+          }
+        }
+      ]
+    }
+  ],
+  "libraryVersion": 2000,
+  "serializationVersion": "1.1.0",
+  "sourceMicroversion": "abc123"
+}

@@ -21,6 +21,7 @@ from .budget import BudgetExceeded, Ledger
 from .cache import DocCache
 from .config import Config
 from .docref import DocRef
+from .generic.specs import FeatureSpec
 from .lint import Finding, lint_sketch
 from .model import Feature, FeatureList
 from .outline import render_outline
@@ -44,6 +45,8 @@ class Context:
     reread: dict[DocRef, str] = field(default_factory=dict)
     # MCP runs sync tools in worker threads; one RLock serialises every tool body
     # (last_read, DocCache and the ledger-delta request counts are shared state).
+    # Native feature specs per document, fetched once (stored only on success).
+    specs: dict[DocRef, list[FeatureSpec]] = field(default_factory=dict)
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
 
     def read(self, ref: DocRef) -> FeatureList:
@@ -51,6 +54,11 @@ class Context:
         self.last_read[ref] = fl.microversion
         self.reread.pop(ref, None)
         return fl
+
+    def feature_specs(self, ref: DocRef) -> list[FeatureSpec]:
+        if ref not in self.specs:
+            self.specs[ref] = self.backend.get_feature_specs(ref)
+        return self.specs[ref]
 
     def lose_track(self, ref: DocRef, why: str) -> None:
         """After a landed write whose new version Claude has not actually read:

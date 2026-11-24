@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from ..docref import DocRef
+from ..generic.specs import FeatureSpec
 from ..model import FeatureList, Variable, WriteResult
 
 
@@ -31,6 +32,10 @@ class Backend(Protocol):
     def list_features(self, ref: DocRef) -> FeatureList: ...
 
     def get_variables(self, ref: DocRef) -> list[Variable]: ...
+
+    def get_feature_specs(self, ref: DocRef) -> list[FeatureSpec]:
+        """Native feature specs of the part studio's feature library, sorted by type."""
+        ...
 
     def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
         """Raises StaleVersion(may_have_landed=True) if Onshape reports skew (the

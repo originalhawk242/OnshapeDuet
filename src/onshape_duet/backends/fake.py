@@ -7,6 +7,7 @@ from collections.abc import MutableMapping
 
 from ..budget import Ledger
 from ..docref import DocRef
+from ..generic.specs import FeatureSpec, parse_feature_specs
 from ..model import Feature, FeatureList, Variable, WriteResult, flatten_params
 from ..variables import (VARIABLE_FEATURE_TYPE, find_variable, make_variable_feature,
                          variables_from_features)
@@ -70,6 +71,8 @@ class FakeBackend:
         self.calls: Counter[str] = Counter()
         self._docs: dict[DocRef, _Doc] = {}
         self.next_status: str | None = None
+        # Raw featurespecs response served by get_feature_specs (tests assign a fixture).
+        self.specs_json: dict = {"featureSpecs": []}
 
     def _doc(self, ref: DocRef) -> _Doc:
         return self._docs.setdefault(ref, _Doc())
@@ -101,6 +104,10 @@ class FakeBackend:
     def get_variables(self, ref: DocRef) -> list[Variable]:
         self._enter("get_variables")
         return variables_from_features(FeatureList("", self._doc(ref).features))
+
+    def get_feature_specs(self, ref: DocRef) -> list[FeatureSpec]:
+        self._enter("get_feature_specs")
+        return parse_feature_specs(self.specs_json)
 
     def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
         self._enter("add_feature")
