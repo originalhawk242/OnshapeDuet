@@ -300,3 +300,99 @@ def test_shell_edge_selector_refused():
         build_shell(FL, faces=EDGES, thickness=1)
     with pytest.raises(FeatureSpecError, match="outward"):
         build_shell(FL, faces=FACES, thickness=1, outward="x")
+
+
+# ---- cad_pattern / cad_mirror builders ----
+from onshape_duet.features.builders import build_mirror, build_pattern  # noqa: E402
+
+PFL = FeatureList("v1", [Feature("Fabc", "newSketch", "Base", "OK"),
+                         Feature("Fext", "extrude", "Boss", "OK"),
+                         Feature("Fcp", "cPlane", "Mid", "OK")])
+EDGE = {"entity": "edge", "created_by": "Base", "geometry": "line"}
+
+
+def test_build_linear_pattern_matches_spec():
+    b = build_pattern(PFL, kind="linear", features=["Boss"], count=4, direction=EDGE, spacing="10 mm")
+    assert_matches_spec(b.feature_json, "linearPattern")
+    p = _by_id(b)
+    assert b.feature_json["featureType"] == "linearPattern"
+    assert p["patternType"]["value"] == "FEATURE" and p["patternType"]["enumName"] == "PatternType"
+    assert p["instanceFunction"]["btType"] == "BTMParameterFeatureList-1749"
+    assert p["instanceFunction"]["featureIds"] == ["Fext"]
+    assert p["distance"]["expression"] == "10 mm"
+    assert p["instanceCount"]["expression"] == "4" and p["instanceCount"]["isInteger"] is True
+    assert p["oppositeDirection"]["value"] is False
+    assert "directionOne" in p and "operationType" not in p and "defaultScope" not in p
+    assert "Fext" not in repr(b.summary)
+
+
+def test_build_circular_pattern_matches_spec():
+    b = build_pattern(PFL, kind="circular", features=["Boss"], count=6, axis=EDGE)
+    assert_matches_spec(b.feature_json, "circularPattern")
+    p = _by_id(b)
+    assert p["patternType"]["value"] == "FEATURE"
+    assert p["angle"]["expression"] == "360 deg" and p["equalSpace"]["value"] is True
+    assert p["instanceCount"]["expression"] == "6" and "axis" in p
+    assert "operationType" not in p and "defaultScope" not in p
+
+
+def test_build_mirror_matches_spec():
+    b = build_mirror(PFL, features=["Boss"], plane="Top")
+    assert_matches_spec(b.feature_json, "mirror")
+    p = _by_id(b)
+    assert p["patternType"]["value"] == "FEATURE" and p["patternType"]["enumName"] == "MirrorType"
+    assert p["instanceFunction"]["featureIds"] == ["Fext"]
+    assert "mirrorPlane" in p and "operationType" not in p
+    b = build_mirror(PFL, features=["Boss"], plane={"plane": "Mid"})
+    assert_matches_spec(b.feature_json, "mirror")
+
+
+@pytest.mark.parametrize("n", [1, 0, -3, True, "x", 10001, "#n"])
+def test_pattern_count_below_two_refused(n):
+    with pytest.raises(FeatureSpecError):
+        build_pattern(PFL, kind="linear", features=["Boss"], count=n, direction=EDGE, spacing=5)
+
+
+def test_linear_pattern_rejects_axis():
+    with pytest.raises(FeatureSpecError, match="axis"):
+        build_pattern(PFL, kind="linear", features=["Boss"], count=3, direction=EDGE, spacing=5, axis=EDGE)
+    with pytest.raises(FeatureSpecError, match="direction"):
+        build_pattern(PFL, kind="linear", features=["Boss"], count=3, spacing=5)
+    with pytest.raises(FeatureSpecError, match="spacing"):
+        build_pattern(PFL, kind="linear", features=["Boss"], count=3, direction=EDGE)
+
+
+def test_circular_pattern_rules():
+    with pytest.raises(FeatureSpecError, match="axis"):
+        build_pattern(PFL, kind="circular", features=["Boss"], count=3)
+    with pytest.raises(FeatureSpecError, match="direction"):
+        build_pattern(PFL, kind="circular", features=["Boss"], count=3, axis=EDGE, direction=EDGE)
+    with pytest.raises(FeatureSpecError, match="spacing"):
+        build_pattern(PFL, kind="circular", features=["Boss"], count=3, axis=EDGE, spacing=5)
+    with pytest.raises(FeatureSpecError, match="axis"):
+        build_pattern(PFL, kind="circular", features=["Boss"], count=3,
+                      axis={"entity": "face", "created_by": "Base"})
+    with pytest.raises(FeatureSpecError):
+        build_pattern(PFL, kind="circular", features=["Boss"], count=3, axis=EDGE, angle=0)
+
+
+def test_pattern_bad_kind():
+    with pytest.raises(FeatureSpecError, match="kind"):
+        build_pattern(PFL, kind="spiral", features=["Boss"], count=3, axis=EDGE)
+
+
+def test_pattern_unknown_feature_lists_names():
+    with pytest.raises(FeatureSpecError) as e:
+        build_pattern(PFL, kind="circular", features=["Nope"], count=3, axis=EDGE)
+    assert "features" in str(e.value) and "'Boss'" in str(e.value)
+
+
+@pytest.mark.parametrize("fs", [[], "Boss", None, [1], ["Boss"] * 0 + [f"f{i}" for i in range(21)], [None]])
+def test_pattern_bad_features_list(fs):
+    with pytest.raises(FeatureSpecError, match="features"):
+        build_mirror(PFL, features=fs, plane="Top")
+
+
+def test_pattern_features_deduplicated_in_order():
+    b = build_mirror(PFL, features=["Boss", "Base", "Boss"], plane="Top")
+    assert _by_id(b)["instanceFunction"]["featureIds"] == ["Fext", "Fabc"]

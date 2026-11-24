@@ -184,3 +184,16 @@ def test_shell_boolean_dry_run(with_sketch):
     out = cad_boolean(ctx, REF, "Merge", "union", body)
     assert out["applied"] is False and out["feature_type"] == "booleanBodies"
     assert "faces" in cad_shell(ctx, REF, "H2", {"entity": "edge", "created_by": "Base"}, 2)["error"]
+
+
+def test_pattern_mirror_dry_run(with_sketch):
+    from onshape_duet.feature_tools import cad_mirror, cad_pattern
+    ctx, backend, _ = with_sketch
+    edge = {"entity": "edge", "created_by": "Base"}
+    out = cad_pattern(ctx, REF, "Row", "linear", ["Base"], 3, direction=edge, spacing=5)
+    assert out["applied"] is False and out["feature_type"] == "linearPattern"
+    out = cad_pattern(ctx, REF, "Ring", "circular", ["Base"], 3, axis=edge)
+    assert out["feature_type"] == "circularPattern"
+    out = cad_mirror(ctx, REF, "Flip", ["Base"], "Top")
+    assert out["applied"] is False and out["feature_type"] == "mirror"
+    assert "features" in cad_mirror(ctx, REF, "F2", ["Zzz"], "Top")["error"]

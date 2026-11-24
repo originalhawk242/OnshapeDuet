@@ -105,3 +105,10 @@ def test_messages_are_sanitised():
 def test_oversized_int_raises_spec_error(fn, arg, big):
     with pytest.raises(FeatureSpecError, match=arg):
         fn(big, arg)
+
+
+def test_p_features_shape():
+    from onshape_duet.features.params import p_features
+    assert p_features("instanceFunction", ["F1", "F2"]) == {
+        "btType": "BTMParameterFeatureList-1749", "featureIds": ["F1", "F2"],
+        "parameterId": "instanceFunction"}

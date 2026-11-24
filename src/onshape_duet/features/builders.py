@@ -7,8 +7,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from onshape_duet.features.params import (FeatureSpecError, Value, feature, length, p_bool,
-                                          p_enum, p_qty, p_query)
+from onshape_duet.features.params import (FeatureSpecError, Value, count as _count, feature, length,
+                                          p_bool, p_enum, p_features, p_qty, p_query)
 from onshape_duet.features.params import angle as _angle
 from onshape_duet.features.refs import (PlaneRef, RefError, compile_selector, plane_param, resolve,
                                        selector_entity)
@@ -200,3 +200,63 @@ def build_boolean(fl: FeatureList, *, operation: str, tools, targets=None,
         summary["targets"] = _clean_deep(targets)
     params.append(p_bool("keepTools", keep_tools))
     return Built(feature("booleanBodies", "", params), [], summary)
+
+
+_MAX_FEATURES = 20
+
+
+def _feature_ids(fl: FeatureList, features) -> tuple[list[str], list[str]]:
+    """1-20 feature names -> (de-duplicated ids in order, cleaned names)."""
+    if (not isinstance(features, list) or not 1 <= len(features) <= _MAX_FEATURES
+            or not all(isinstance(n, str) for n in features)):
+        raise FeatureSpecError(f"features: expected a list of 1 to {_MAX_FEATURES} feature names")
+    ids: list[str] = []
+    names: list[str] = []
+    for n in features:
+        f = resolve(fl, n, "features")
+        if f.id not in ids:
+            ids.append(f.id)
+            names.append(clean(n, 100))
+    return ids, names
+
+
+def build_pattern(fl: FeatureList, *, kind: str, features, count, direction=None, spacing=None,
+                  axis=None, angle=360) -> Built:
+    kind = _choice("kind", kind, ("linear", "circular"))
+    ids, names = _feature_ids(fl, features)
+    n = _count(count, "count")
+    params = [p_enum("patternType", "PatternType", "FEATURE"), p_features("instanceFunction", ids)]
+    if kind == "linear":
+        if axis is not None:
+            raise FeatureSpecError("axis: not allowed for a linear pattern; use direction")
+        if direction is None:
+            raise FeatureSpecError("direction: required for a linear pattern (an edge or face selector)")
+        if spacing is None:
+            raise FeatureSpecError("spacing: required for a linear pattern")
+        params.append(_selector_query(direction, fl, "direction", ("edge", "face"), "directionOne"))
+        d = length(spacing, "spacing")
+        params += [p_qty("distance", d), p_qty("instanceCount", n), p_bool("oppositeDirection", False)]
+        values = [d, n]
+        summary = {"kind": kind, "features": names, "count": n.expr, "spacing": d.expr,
+                   "direction": _clean_deep(direction)}
+    else:
+        for arg, val in (("direction", direction), ("spacing", spacing)):
+            if val is not None:
+                raise FeatureSpecError(f"{arg}: not allowed for a circular pattern; use axis")
+        if axis is None:
+            raise FeatureSpecError("axis: required for a circular pattern (an edge selector)")
+        params.append(_selector_query(axis, fl, "axis", ("edge",), "axis"))
+        a = _angle(angle, "angle")
+        params += [p_qty("angle", a), p_qty("instanceCount", n), p_bool("equalSpace", True)]
+        values = [a, n]
+        summary = {"kind": kind, "features": names, "count": n.expr, "angle": a.expr,
+                   "axis": _clean_deep(axis)}
+    return Built(feature(f"{kind}Pattern", "", params), values, summary)
+
+
+def build_mirror(fl: FeatureList, *, features, plane: PlaneRef) -> Built:
+    ids, names = _feature_ids(fl, features)
+    params = [p_enum("patternType", "MirrorType", "FEATURE"), p_features("instanceFunction", ids),
+              plane_param("mirrorPlane", plane, fl)]
+    return Built(feature("mirror", "", params), [],
+                 {"features": names, "plane": _clean_deep(plane)})

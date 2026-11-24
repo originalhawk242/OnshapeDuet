@@ -147,3 +147,8 @@ def p_ids(pid: str, ids: list[str]) -> dict:
 def feature(feature_type: str, name: str, params: list[dict]) -> dict:
     return {"btType": "BTMFeature-134", "featureType": feature_type, "name": name,
             "suppressed": False, "parameters": params}
+
+
+def p_features(pid: str, feature_ids: list[str]) -> dict:
+    return {"btType": "BTMParameterFeatureList-1749", "featureIds": list(feature_ids),
+            "parameterId": pid}

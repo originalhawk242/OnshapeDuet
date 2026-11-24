@@ -6,7 +6,8 @@ from collections.abc import Callable
 from .backends.base import PostWriteError, StaleVersion
 from .docref import DocRef
 from .features.builders import (Built, build_boolean, build_chamfer, build_extrude, build_fillet,
-                                build_plane, build_revolve, build_shell)
+                                build_mirror, build_pattern, build_plane, build_revolve,
+                                build_shell)
 from .features.find import find_script, parse_find_result
 from .features.params import FeatureSpecError
 from .features.refs import compile_selector, selector_entity
@@ -138,3 +139,18 @@ def cad_boolean(ctx: Context, ref: DocRef, name: str, operation: str, tools, tar
         lambda fl: build_boolean(fl, operation=operation, tools=tools, targets=targets,
                                  keep_tools=keep_tools),
         apply, "the boolean")
+
+
+def cad_pattern(ctx: Context, ref: DocRef, name: str, kind: str, features, count, direction=None,
+                spacing=None, axis=None, angle=360, apply: bool = False) -> dict:
+    return run_feature(
+        ctx, ref, name,
+        lambda fl: build_pattern(fl, kind=kind, features=features, count=count,
+                                 direction=direction, spacing=spacing, axis=axis, angle=angle),
+        apply, "the pattern")
+
+
+def cad_mirror(ctx: Context, ref: DocRef, name: str, features, plane,
+               apply: bool = False) -> dict:
+    return run_feature(ctx, ref, name, lambda fl: build_mirror(fl, features=features, plane=plane),
+                       apply, "the mirror")
