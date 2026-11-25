@@ -98,3 +98,17 @@ def test_long_values_truncated_and_nested_params_absent():
     assert "nested" not in out and "lst" not in out
     assert "note=" + "v" * 39 + "…" in lines[0]
     assert len(lines[-1]) < 300 and "…" in lines[-1]
+
+
+def test_outline_hole_shows_only_key_params():
+    params = {f"p{i}": f"{i} mm" for i in range(30)}
+    params.update({"holeDiameterV3": "5 mm", "styleV2": "SIMPLE", "endStyleV2": "THROUGH"})
+    out = render_outline(_fl(Feature("F", "hole", "Holes", "OK", params)), [])
+    assert out.endswith("| styleV2=SIMPLE, holeDiameterV3=5 mm, endStyleV2=THROUGH, +30 more (cad_inspect)")
+
+
+def test_outline_other_feature_capped_at_12():
+    params = {f"k{i}": f"{i} mm" for i in range(15)}
+    out = render_outline(_fl(Feature("F", "extrude", "Boss", "OK", params)), [])
+    assert out.count("=") == 12 and out.endswith(", +3 more (cad_inspect)")
+    assert "k11=11 mm" in out and "k12" not in out

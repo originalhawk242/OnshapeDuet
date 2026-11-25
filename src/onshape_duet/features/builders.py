@@ -4,9 +4,11 @@ Parameter ids and enum values come from Onshape's own featurespecs, never from g
 """
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass
 
+from onshape_duet.features.hole_defaults import HOLE_DEFAULTS
 from onshape_duet.features.params import (FeatureSpecError, Value, count as _count, feature, length,
                                           p_bool, p_enum, p_features, p_lookup, p_qty, p_query)
 from onshape_duet.features.params import angle as _angle
@@ -321,4 +323,7 @@ def build_hole(fl: FeatureList, *, sketch: str, points, diameter, depth=None,
     summary = {"sketch": clean(sketch, 100), "points": ids, "diameter": d.expr,
                "depth": values[1].expr if depth is not None else None,
                "note": f"hole settings (LEGACY/V2/V3 variants): {UNVERIFIED_LIVE}"}
-    return Built(feature("hole", "", params), values, summary)
+    merged = {d["parameterId"]: copy.deepcopy(d) for d in HOLE_DEFAULTS}
+    for prm in params:  # built values replace the default of the same id; new ids are appended
+        merged[prm["parameterId"]] = prm
+    return Built(feature("hole", "", list(merged.values())), values, summary)

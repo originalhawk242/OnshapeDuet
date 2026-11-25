@@ -11,13 +11,24 @@ from .lint import DEFAULT_NAME as _DEFAULT_NAME
 _MAX_VALUE_LEN = 40
 
 
+_MAX_PARAMS = 12
+_HOLE_KEYS = ("styleV2", "holeDiameterV3", "endStyleV2", "holeDepthV3")
+
+
 def _editable_numbers(feature: Feature) -> str:
-    parts = []
+    entries = {}
     for key, val in feature.params.items():
         if isinstance(val, bool):
             continue
         if isinstance(val, (int, float)) or (isinstance(val, str) and val.strip()):
-            parts.append(f"{clean(key, 30)}={clean(val, _MAX_VALUE_LEN)}")
+            entries[key] = f"{clean(key, 30)}={clean(val, _MAX_VALUE_LEN)}"
+    if feature.type == "hole":
+        shown = [entries[k] for k in _HOLE_KEYS if k in entries]
+    else:
+        shown = list(entries.values())[:_MAX_PARAMS]
+    parts = list(shown)
+    if len(entries) > len(shown):
+        parts.append(f"+{len(entries) - len(shown)} more (cad_inspect)")
     return ", ".join(parts)
 
 

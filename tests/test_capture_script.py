@@ -53,3 +53,44 @@ def test_capture_writes_gzip_specs_object_queries_and_merges_probes(tmp_path, mo
     probes = json.loads((tmp_path / "probes.json").read_text())
     assert probes["find_eval"] == {"keep": 1} and probes["extrude_querystring"] == {"keep": 2}
     assert probes["fs_eval"] == {"result": {"btType": "x"}}
+
+
+# ---- gen_hole_defaults ----
+def _load_gen():
+    import importlib.util
+    path = Path(__file__).parent.parent / "scripts" / "gen_hole_defaults.py"
+    spec = importlib.util.spec_from_file_location("gen_hole_defaults", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _q(pid, value, units, expression=""):
+    return {"parameterId": pid, "defaultValue": {"btType": "BTMParameterQuantity-147",
+            "value": value, "units": units, "expression": expression, "isInteger": False}}
+
+
+def test_gen_hole_defaults_one_entry_per_default_and_units():
+    gen = _load_gen()
+    spec = gen.load_hole_spec()
+    out, skipped = gen.convert(spec)
+    with_default = [p["parameterId"] for p in spec["parameters"] if p.get("defaultValue")]
+    assert [d["parameterId"] for d in out] == with_default
+    assert skipped == len(spec["parameters"]) - len(with_default)
+    assert gen.convert_param(_q("a", 0.012, "meter"))["expression"] == "12 mm"
+    assert gen.convert_param(_q("b", 118.0, "degree"))["expression"] == "118 deg"
+    assert gen.convert_param(_q("c", 3.0, ""))["expression"] == "3"
+    assert gen.convert_param(_q("d", 1, "meter", "7 mm"))["expression"] == "7 mm"
+
+
+def test_gen_hole_defaults_unknown_unit_raises():
+    import pytest
+    gen = _load_gen()
+    with pytest.raises(ValueError, match="furlong"):
+        gen.convert_param(_q("a", 1.0, "furlong"))
+
+
+def test_committed_hole_defaults_match_fresh_generation():
+    gen = _load_gen()
+    out, _ = gen.convert(gen.load_hole_spec())
+    assert gen.OUT.read_text() == gen.render(out)

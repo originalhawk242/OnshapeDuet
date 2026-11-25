@@ -287,3 +287,11 @@ def test_lint_feature_onshape_default_names_warn(name):
 
 def test_lint_feature_descriptive_name_does_not_warn():
     assert "DEFAULT_NAME" not in {f.code for f in lint_feature("Linear pattern of ribs", [], _fl())}
+
+
+def test_lint_existing_hole_only_caller_params_count_for_magic_number():
+    hole = Feature("F1", "hole", "Holes", "OK", {"holeDiameterV3": "5 mm", "holeDiameter": "12 mm",
+                                                 "holeDepthV3": "5 mm", "someDefault": "12 mm"})
+    fl = _fl(hole)
+    assert "MAGIC_NUMBER" not in {f.code for f in lint_feature("Rib", [_len("depth", 12)], fl)}
+    assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 5)], fl)}

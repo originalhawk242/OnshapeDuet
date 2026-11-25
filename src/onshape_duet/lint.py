@@ -110,6 +110,16 @@ def lint_sketch(spec: dict, report: DofReport, name: str,
     return out
 
 
+_HOLE_CALLER_PARAMS = ("holeDiameterV3", "holeDepthV3")
+
+
+def _lint_params(f) -> dict:
+    """A hole carries ~160 fixed defaults (e.g. 12 mm); only the caller-set ones can be magic."""
+    if f.type == "hole":
+        return {k: f.params[k] for k in _HOLE_CALLER_PARAMS if k in f.params}
+    return f.params
+
+
 def lint_feature(name: str, values: list[Value], fl: FeatureList) -> list[Finding]:
     out: list[Finding] = []
     if DEFAULT_NAME.fullmatch(str(name)):
@@ -152,7 +162,7 @@ def lint_feature(name: str, values: list[Value], fl: FeatureList) -> list[Findin
         hit = next((f for f in fl.features if f.type != VARIABLE_FEATURE_TYPE
                     and any(isinstance(p, str) and (m := parse_length_mm(p, require_unit=True)) is not None
                             and abs(m - a.literal) <= 1e-9
-                            for p in f.params.values())), None)
+                            for p in _lint_params(f).values())), None)
         if hit is not None:
             out.append(Finding("warn", "MAGIC_NUMBER",
                                f"{clean(a.arg)}: the literal {a.literal:g} mm also appears "

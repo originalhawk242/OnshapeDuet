@@ -414,7 +414,7 @@ def test_build_hole_through_matches_spec():
         assert ps[pid]["expression"] == "5 mm"
     assert ps["endStyle"]["value"] == "THROUGH" and ps["endStyleV2"]["value"] == "THROUGH"
     assert ps["endStyle"]["enumName"] == "HoleEndStyle" and ps["endStyleV2"]["enumName"] == "HoleEndStyleV2"
-    assert "holeDepth" not in ps and "holeDepthV3" not in ps
+    assert ps["holeDepth"]["expression"] == "12 mm"  # spec default, not a caller value
     assert ps["style"]["value"] == ps["styleV2"]["value"] == "SIMPLE"
     assert ps["holeVersion"]["value"] == "V3" and ps["isV2"]["value"] is True
     assert ps["unitsSystem"]["value"] == "METRIC" and ps["threadStandard"]["value"] == "UNSET"
@@ -436,6 +436,36 @@ def _assert_hole_regen_params(ps):
     assert ps["tipAngleStyle"]["value"] == "DEGREE118"
     assert ps["tipAngleStyle"]["enumName"] == "TipAngleStyle"
     assert ps["tipAngleV3"]["expression"] == "118 deg"
+
+
+def _check_hole_defaults(b):
+    from onshape_duet.features.hole_defaults import HOLE_DEFAULTS
+    ids = [p["parameterId"] for p in b.feature_json["parameters"]]
+    assert len(ids) == len(set(ids))
+    assert set(d["parameterId"] for d in HOLE_DEFAULTS) <= set(ids)
+    ps = _by_id(b)
+    assert ps["initEntities"]["queries"] == [] and ps["featureName"]["value"] == ""
+    for pid in ("hasClearance", "showTappedDepth", "isMultiple"):
+        assert ps[pid]["value"] is False
+
+
+def test_hole_through_sends_every_spec_default():
+    b = build_hole(FL, sketch="Base", points=["p1"], diameter=4)
+    assert_matches_spec(b.feature_json, "hole")
+    _check_hole_defaults(b)
+    ps = _by_id(b)
+    assert [v.expr for v in b.values] == ["4 mm"]
+    assert ps["holeDiameter"]["expression"] == ps["holeDiameterV2"]["expression"] == "4 mm"
+    assert ps["holeDiameterV3"]["expression"] == "4 mm"
+
+
+def test_hole_blind_sends_every_spec_default():
+    b = build_hole(FL, sketch="Base", points=["p1"], diameter=4, depth=8)
+    assert_matches_spec(b.feature_json, "hole")
+    _check_hole_defaults(b)
+    ps = _by_id(b)
+    assert ps["holeDepth"]["expression"] == ps["holeDepthV3"]["expression"] == "8 mm"
+    assert [v.expr for v in b.values] == ["4 mm", "8 mm"]
 
 
 def test_hole_diameter_4_keeps_default_table():
