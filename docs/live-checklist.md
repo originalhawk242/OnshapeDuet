@@ -258,7 +258,7 @@ Captured from the foundation test document with `scripts/capture_features.py` (6
 - `cad_find` script verified live (2026-11-24, 1 request): `find_script` with the bare `function(context is Context, queries is map)` form evaluated `qCreatedBy(makeId("FYg6qkcmnXyyqI5_0"), EntityType.EDGE)` (sketch `PlateVar`) → count 10, centroids like `(25.000000000000004, 0, 0)` in mm. The reply is stored under `find_eval` in `tests/fixtures/probes.json`. A sketch's edges are reported twice (10 for a 5-edge sketch), which is Onshape's own count for qCreatedBy on a sketch.
 - (Q1) `queryString` selections persist (2026-11-24, real `cad_extrude` apply, 4 requests): `ProbeExtrude` (8 mm, sketch `PlateVar`) regenerated **OK**.
   Read back, its `entities` query keeps `"queryString": "query=qSketchRegion(makeId(\"FYg6qkcmnXyyqI5_0\"), true);"`, and Onshape adds the resolved `"deterministicIds": ["JIC"]` beside it.
-  Still to verify (Task 14, needs budget): that after an upstream edit (e.g. a variable change), the selection follows the query rather than the stored ids. The reply is under `extrude_querystring` in `tests/fixtures/probes.json`.
+  Verified in Task 14b (see "Typed features: live run" below): that after an upstream edit (e.g. a variable change), the selection follows the query rather than the stored ids. The reply is under `extrude_querystring` in `tests/fixtures/probes.json`.
   `ProbeExtrude` is left in the foundation test document. Delete it in the UI, or leave it for Task 14 to build on.
 
 ### Typed features: live run (Task 14b, 2026-11-24)
@@ -306,6 +306,9 @@ Facts learned:
   gives holes at x = 10, 30, 50. `HoleBlind` 3 mm x 8 mm from a second sketch cuts r = 1.5 at (50, 40). Both holes regenerate
   with status **INFO** (a non-standard diameter compared with the hole table). The tools now report INFO as a warn
   `REGEN_INFO`, not an error.
+- After the final-review fix wave, the generated defaults take their values from `generic.specs.default_param`: tolerance bounds are
+  `0.1 mm`, and enums carry no `namespace`. Re-checked live (ledger 192 → 197): `HoleCheck`, 6 mm through at p1, cuts r = 3 at (10, 10)
+  with status INFO, and the reply carries the warn `REGEN_INFO` finding.
 
 ### Typed features: open live items
 
