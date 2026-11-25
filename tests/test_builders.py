@@ -444,6 +444,22 @@ def _assert_hole_regen_params(ps):
     assert ps["tipAngleV3"]["expression"] == "118 deg"
 
 
+def test_hole_regen_params_come_from_the_generated_defaults():
+    # M4: build_hole no longer overrides isoHoleTableEx/tipAngleStyle/tipAngleV3; the spec
+    # defaults already carry the values the live run needed.
+    from onshape_duet.features.hole_defaults import HOLE_DEFAULTS
+    import inspect
+    from onshape_duet.features import builders
+    src = inspect.getsource(builders.build_hole)
+    for pid in ("isoHoleTableEx", "tipAngleStyle", "tipAngleV3"):
+        assert f'"{pid}"' not in src
+    defaults = {d["parameterId"]: d for d in HOLE_DEFAULTS}
+    ps = _by_id(build_hole(FL, sketch="Base", points=["p1"], diameter=4))
+    for pid in ("isoHoleTableEx", "tipAngleStyle", "tipAngleV3"):
+        assert ps[pid] == defaults[pid]
+    _assert_hole_regen_params(ps)
+
+
 def _check_hole_defaults(b):
     from onshape_duet.features.hole_defaults import HOLE_DEFAULTS
     ids = [p["parameterId"] for p in b.feature_json["parameters"]]

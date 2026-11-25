@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from onshape_duet.features.hole_defaults import HOLE_DEFAULTS
 from onshape_duet.features.params import (FeatureSpecError, Value, count as _count, feature, length,
-                                          p_bool, p_enum, p_features, p_lookup, p_qty, p_query)
+                                          p_bool, p_enum, p_features, p_qty, p_query)
 from onshape_duet.features.params import angle as _angle
 from onshape_duet.features.refs import (PlaneRef, RefError, compile_selector, plane_param, resolve,
                                        selector_entity)
@@ -282,9 +282,11 @@ def build_mirror(fl: FeatureList, *, features, plane: PlaneRef) -> Built:
                  {"features": names, "plane": _clean_deep(plane)})
 
 
-# Hole: the live spec carries LEGACY, V2 and V3 variants of the same settings, and which ones the
-# current hole reads cannot be known offline. Every setting is therefore emitted in every variant
-# consistently; the Task 14 live run decides which can be dropped.
+# Hole: the live spec carries LEGACY, V2 and V3 variants of the same settings. Every caller setting
+# is emitted in every variant; every other parameter is sent at its spec default (HOLE_DEFAULTS),
+# because Onshape fills in no omitted parameter. Those defaults include what regeneration needs
+# (the isoHoleTableEx path for the V2 precondition, tipAngleStyle/tipAngleV3, which V3 copies over
+# tipAngle): verified live in Task 15, 2026-11-24.
 def build_hole(fl: FeatureList, *, sketch: str, points, diameter, depth=None,
                style: str = "simple") -> Built:
     if style != "simple":
@@ -305,12 +307,7 @@ def build_hole(fl: FeatureList, *, sketch: str, points, diameter, depth=None,
                                     for pt in ids]),
               p_query("scope", ["qAllModifiableSolidBodies()"]),
               p_qty("holeDiameter", d), p_qty("holeDiameterV2", d), p_qty("holeDiameterV3", d),
-              p_enum("startStyle", "HoleStartStyle", "PART"),
-              # Onshape fills in no omitted parameter: the V2 precondition needs a lookup table
-              # path, and V3 copies tipAngleV3 over tipAngle (live finding, 2026-11-24).
-              p_lookup("isoHoleTableEx", {"size": "5", "holeType": "Drilled"}),
-              p_enum("tipAngleStyle", "TipAngleStyle", "DEGREE118"),
-              p_qty("tipAngleV3", _angle(118, "tipAngleV3"))]
+              p_enum("startStyle", "HoleStartStyle", "PART")]
     if depth is None:
         params += [p_enum("endStyle", "HoleEndStyle", "THROUGH"),
                    p_enum("endStyleV2", "HoleEndStyleV2", "THROUGH")]
