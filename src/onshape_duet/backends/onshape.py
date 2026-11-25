@@ -46,6 +46,8 @@ def features_path(ref: DocRef) -> str:
 
 def feature_specs_path(ref: DocRef) -> str:
     return features_path(ref).removesuffix("/features") + "/featurespecs"
+def featurescript_path(ref: DocRef) -> str:
+    return features_path(ref)[: -len("features")] + "featurescript"
 
 
 def feature_update_path(ref: DocRef, feature_id: str) -> str:
@@ -242,6 +244,15 @@ class OnshapeBackend:
         if not isinstance(states, dict) or not isinstance(feats, list):
             raise RuntimeError("unexpected Onshape response: malformed feature list")
         return FeatureList(mv, [_parse_feature(f, states) for f in feats])
+
+    def eval_featurescript(self, ref: DocRef, script: str) -> dict:
+        # Verified live: `queries` must be an object (a list gives HTTP 400).
+        data = self._ok(self._request("POST", featurescript_path(ref),
+                                      body={"script": script, "queries": {}}))
+        result = data.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError("unexpected Onshape response: missing result")
+        return result
 
     def get_variables(self, ref: DocRef) -> list[Variable]:
         return variables_from_features(self.list_features(ref))

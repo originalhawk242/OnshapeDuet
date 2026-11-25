@@ -10,8 +10,11 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Literal
 
+from .features.params import Value, parse_length_mm
+from .model import FeatureList
 from .sketch.solver import DofReport
 from .textsafe import clean
+from .variables import VARIABLE_FEATURE_TYPE, find_variable
 
 _DEFAULT_NAME = re.compile(
     r"(Sketch|Extrude|Fillet|Revolve|Chamfer|Shell|Hole|Boolean|Pattern|Mirror|Plane) \d+")
@@ -88,4 +91,57 @@ def lint_sketch(spec: dict, report: DofReport, name: str) -> list[Finding]:
             out.append(Finding("warn", "MAGIC_NUMBER",
                                f"the literal {v:g} is used in {n} dimensions; "
                                "make it a variable and reference it with '#name'"))
+    return out
+
+
+def lint_feature(name: str, values: list[Value], fl: FeatureList) -> list[Finding]:
+    out: list[Finding] = []
+    if _DEFAULT_NAME.fullmatch(str(name)):
+        out.append(Finding("warn", "DEFAULT_NAME",
+                           f"name {clean(name)!r} looks like a default; give it a "
+                           "descriptive name"))
+    if any(f.type != VARIABLE_FEATURE_TYPE and f.name == name for f in fl.features):
+        out.append(Finding("refuse", "DUPLICATE_NAME",
+                           f"a feature named {clean(name)!r} already exists; references "
+                           "are by name, so choose a unique name"))
+
+    for v in values:
+        if v.var is None:
+            continue
+        var_feature = find_variable(fl, v.var)
+        if var_feature is None:
+            out.append(Finding("refuse", "UNKNOWN_VARIABLE",
+                               f"{clean(v.arg)}: variable {clean(v.var)!r} does not exist "
+                               "in this Part Studio; create it with cad_variable first"))
+        elif v.kind == "length":
+            vtype = var_feature.params.get("variableType", "LENGTH")
+            if vtype != "LENGTH":
+                out.append(Finding("refuse", "NON_LENGTH_VARIABLE",
+                                   f"{clean(v.arg)}: variable {clean(v.var)!r} is a "
+                                   f"{clean(vtype, 20)} variable, not a length"))
+
+    literals = [v for v in values if v.kind == "length" and v.literal is not None]
+    flagged: set[int] = set()
+    for i, a in enumerate(literals):
+        if i in flagged:
+            continue
+        twins = [j for j in range(i + 1, len(literals))
+                 if abs(literals[j].literal - a.literal) <= 1e-9]
+        if twins:
+            flagged.update(twins)
+            others = ", ".join(clean(literals[j].arg) for j in twins)
+            out.append(Finding("warn", "MAGIC_NUMBER",
+                               f"the literal {a.literal:g} mm is used for both "
+                               f"{clean(a.arg)} and {others}; make it a variable "
+                               "(cad_variable) and reference it with '#name'"))
+            continue
+        hit = next((f for f in fl.features if f.type != VARIABLE_FEATURE_TYPE
+                    and any(isinstance(p, str) and (m := parse_length_mm(p)) is not None
+                            and abs(m - a.literal) <= 1e-9
+                            for p in f.params.values())), None)
+        if hit is not None:
+            out.append(Finding("warn", "MAGIC_NUMBER",
+                               f"{clean(a.arg)}: the literal {a.literal:g} mm also appears "
+                               f"in feature {clean(hit.name)!r}; make it a variable "
+                               "(cad_variable) and reference it with '#name'"))
     return out

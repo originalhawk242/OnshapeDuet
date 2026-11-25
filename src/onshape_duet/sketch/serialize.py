@@ -99,7 +99,7 @@ def _need(refs: list[str], n: int, what: str) -> None:
         raise SketchSpecError(f"{what}: expected {n} ref(s), got {len(refs)}")
 
 
-def to_feature_json(sketch: Sketch, name: str) -> dict:
+def to_feature_json(sketch: Sketch, name: str, plane_param: dict | None = None) -> dict:
     entities = [_entity(eid, e) for eid, e in sketch.entities.items()]
     constraints: list[dict] = []
     for i, c in enumerate(sketch.constraints, 1):
@@ -162,12 +162,13 @@ def to_feature_json(sketch: Sketch, name: str) -> dict:
                 _point_param(pair[0], True), _point_param(pair[1], False), direction, _qty(d)]))
         else:
             raise SketchSpecError(f"{what}: cannot serialise")
-    plane_id = PLANES[sketch.plane]
+    if plane_param is None:
+        plane_param = {"btType": "BTMParameterQueryList-148", "parameterId": "sketchPlane",
+                       "queries": [{"btType": "BTMIndividualQuery-138",
+                                    "deterministicIds": [PLANES[sketch.plane]]}]}
     return {
         "btType": "BTMSketch-151", "featureType": "newSketch",
         "name": name, "suppressed": False,
-        "parameters": [{"btType": "BTMParameterQueryList-148", "parameterId": "sketchPlane",
-                        "queries": [{"btType": "BTMIndividualQuery-138",
-                                     "deterministicIds": [plane_id]}]}],
+        "parameters": [plane_param],
         "entities": entities, "constraints": constraints,
     }

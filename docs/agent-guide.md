@@ -43,7 +43,8 @@ Array parameters on update take one of two forms:
 cad_read(url)
 cad_specs(url, "cPlane")                      # parameters: offset (LENGTH, default 25 mm), ...
 cad_feature_add(url, "cPlane", "Mid plane", {"offset": "5 mm"})
-    -> params {"offset": "5 mm"}, defaults_applied {...}, findings [] ; show the owner
+    -> params {"offset": "5 mm"}, defaults_applied {...},
+       findings [TYPED_TOOL_AVAILABLE: cad_plane ...] ; prefer cad_plane; generic shown for illustration
 cad_feature_add(url, "cPlane", "Mid plane", {"offset": "5 mm"}, apply=True)
 cad_read(url)
 ```

@@ -97,12 +97,16 @@ def test_params_not_a_dict():
         assert [f.code for f in p.findings] == ["BAD_VALUE"]
 
 
-def test_typed_tool_available_names_only_shipped_tools():
+def test_typed_tool_available_names_only_registered_tools(tmp_path):
+    import asyncio
+    from onshape_duet import server
     from onshape_duet.generic.validate import TYPED_TOOL_AVAILABLE
-    assert TYPED_TOOL_AVAILABLE == {"extrude": "cad_extrude"}
-    for t in ("fillet", "cPlane", "revolve"):
-        spec = SPECS.get(t)
-        if spec is None:
-            continue
-        assert not [f for f in lint_generic(t, "Mine", {}, spec, FL, mode="add")
-                    if f.code == "TYPED_TOOL_AVAILABLE"]
+    from onshape_duet.backends.fake import FakeBackend
+    from onshape_duet.budget import Ledger
+    from onshape_duet.cache import DocCache
+    from onshape_duet.config import Config
+    from onshape_duet.tools import Context
+    fb = FakeBackend()
+    ctx = Context(fb, DocCache(fb), Ledger(tmp_path / "l.json", 10), Config(budget=10))
+    names = {t.name for t in asyncio.run(server.build_server(ctx).list_tools())}
+    assert set(TYPED_TOOL_AVAILABLE.values()) <= names

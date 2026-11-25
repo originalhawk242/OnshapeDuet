@@ -65,11 +65,14 @@ def test_read_then_apply_works_and_stale_refused(tmp_path):
     assert out["applied"] is False and "stale" in out["error"]
 
 
-def test_server_registers_tools(tmp_path):
+def test_server_registers_exactly_the_tools(tmp_path):
     ctx, _, _ = make(tmp_path)
     mcp = server.build_server(ctx)
     names = {t.name for t in asyncio.run(mcp.list_tools())}
-    assert {"cad_status", "cad_read", "cad_sketch", "cad_variable"} <= names
+    assert names == {"cad_status", "cad_read", "cad_sketch", "cad_variable",
+                     "cad_find", "cad_extrude", "cad_plane", "cad_revolve", "cad_fillet", "cad_chamfer",
+                     "cad_shell", "cad_boolean", "cad_pattern", "cad_mirror", "cad_hole",
+                     "cad_specs", "cad_inspect", "cad_feature_add", "cad_feature_update"}
 
 
 def test_wrappers_reject_invalid_url(tmp_path):
@@ -310,4 +313,111 @@ def test_apply_must_be_a_real_boolean(tmp_path, tool, args, apply):
     with pytest.raises(Exception) as e:
         asyncio.run(mcp.call_tool(tool, {"url": url, **args, "apply": apply}))
     assert "apply" in repr(e.value) or "bool" in repr(e.value)
+    assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("depth", [True, False])
+def test_extrude_depth_rejects_bool_at_mcp_layer(tmp_path, depth):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool("cad_extrude", {"url": url, "name": "B", "sketch": "S",
+                                                        "depth": depth}))
+    except Exception as e:  # validation error is acceptable
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("offset", [True, False])
+def test_plane_offset_rejects_bool_at_mcp_layer(tmp_path, offset):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    assert "cad_plane" in {t.name for t in asyncio.run(mcp.list_tools())}
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool("cad_plane", {"url": url, "name": "P", "base": "Top",
+                                                      "offset": offset}))
+    except Exception as e:
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("angle", [True, False])
+def test_revolve_angle_rejects_bool_at_mcp_layer(tmp_path, angle):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    assert "cad_revolve" in {t.name for t in asyncio.run(mcp.list_tools())}
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool("cad_revolve", {"url": url, "name": "R", "sketch": "S",
+                                                        "axis": "a", "angle": angle}))
+    except Exception as e:
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("tool,key", [("cad_fillet", "radius"), ("cad_chamfer", "distance")])
+@pytest.mark.parametrize("size", [True, False])
+def test_fillet_chamfer_size_rejects_bool_at_mcp_layer(tmp_path, tool, key, size):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    assert tool in {t.name for t in asyncio.run(mcp.list_tools())}
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool(tool, {"url": url, "name": "R", "edges": {"entity": "edge"},
+                                               key: size}))
+    except Exception as e:
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("size", [True, False])
+def test_shell_thickness_rejects_bool_at_mcp_layer(tmp_path, size):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert {"cad_shell", "cad_boolean"} <= names
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool("cad_shell", {"url": url, "name": "H",
+                                                      "faces": {"entity": "face"}, "thickness": size}))
+    except Exception as e:
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0
+
+
+@pytest.mark.parametrize("count", [True, False])
+def test_pattern_count_rejects_bool_at_mcp_layer(tmp_path, count):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert {"cad_pattern", "cad_mirror"} <= names
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool("cad_pattern", {
+            "url": url, "name": "P", "kind": "circular", "features": ["Base"],
+            "axis": {"entity": "edge"}, "count": count}))
+    except Exception as e:
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
+    assert sum(backend.calls.values()) == 0
+
+
+def test_hole_diameter_rejects_bool_at_mcp_layer(tmp_path):
+    ctx, backend, _ = make(tmp_path)
+    mcp = server.build_server(ctx)
+    assert "cad_hole" in {t.name for t in asyncio.run(mcp.list_tools())}
+    url = "https://cad.onshape.com/documents/%s/w/%s/e/%s" % ("a" * 24, "b" * 24, "c" * 24)
+    try:
+        res = asyncio.run(mcp.call_tool("cad_hole", {
+            "url": url, "name": "H", "sketch": "Base", "points": ["p1"], "diameter": True}))
+    except Exception as e:
+        res = e
+    assert "applied" not in repr(res) or "error" in repr(res)
     assert sum(backend.calls.values()) == 0

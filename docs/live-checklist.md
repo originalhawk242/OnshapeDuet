@@ -139,8 +139,8 @@ G1. **`featurespecs` response shape** (1 request; `cad_specs` makes it). Capture
    Pass: every name and string matches, or the mismatch is recorded and `specs.py` fixed from
    the capture.
 G2. **Fixture replacement.** `tests/fixtures/featurespecs_UNVERIFIED.json` is hand-written.
-   Another session (typed-features) commits a live capture at `tests/fixtures/feature_specs.json`
-   as `{"kept": [...]}` of whole specs. Point the generic tests at it, delete the UNVERIFIED
+   Another session (typed-features) committed a live capture at `tests/fixtures/feature_specs.json.gz`
+   as `{"kept": [...]}` of whole specs; `test_real_capture_defaults_if_present` now runs against it. Point the generic tests at it, delete the UNVERIFIED
    file, and confirm the array spec's item specs sit under `parameters`. Pass: suite green on
    the live fixture. 0 requests.
 
@@ -199,3 +199,21 @@ G7. **Array patch.** On a feature with an array parameter, `cad_feature_update` 
 - **Real-newline feature name (verified live via API):** collapsed to one outline line, no forged line.
 - **Variable create reply** carries a new `sourceMicroversion`; the re-read demand after create is the
   cached-list rule, not a missing version. Variable update dropping UI default params is harmless.
+
+## Typed features: captured facts (2026-11-24)
+
+Ground truth for the typed feature tools is Onshape's own featurespecs, not hand-built UI features (owner's decision).
+Captured from the foundation test document with `scripts/capture_features.py` (68 of 75 budget used afterwards).
+
+- `GET /api/v6/partstudios/d/{d}/w/{w}/e/{e}/featurespecs` works. All 13 wanted specs are present (`BTFeatureSpec-129`) in
+  `tests/fixtures/feature_specs.json.gz`, as `{"kept": [...], "featureTypes_seen": [...]}`, gzipped because the hole spec alone is about 6 MB.
+- `tests/fixtures/doc_features.json` is the raw feature list of that document (sketches and variables from the foundation tests).
+- (Q2) `POST .../featurescript` needs `"queries": {}` (a JSON object). A list gives HTTP 400. The reply is
+  `BTFeatureScriptEvalResponse-1859` with `result` = `{"btType": "com.belmonttech.serialize.fsvalue.BTFSValueArray", "value": [{"btType": "com.belmonttech.serialize.fsvalue.BTFSValueString", "value": "2"}, ...]}`.
+  `toString(vector(1, 2, 3))` renders as `"(1, 2, 3)"`. The reply also carries `sourceMicroversion` and `serializationVersion` (`1.2.10` live; the code sends `1.1.23` for writes).
+- (Q1) Whether `queryString` selections persist: still open. It is answered by live-applying `build_extrude` right after Task 7 and `build_fillet` after Task 10.
+- `cad_find` script verified live (2026-11-24, 1 request): `find_script` with the bare `function(context is Context, queries is map)` form evaluated `qCreatedBy(makeId("FYg6qkcmnXyyqI5_0"), EntityType.EDGE)` (sketch `PlateVar`) → count 10, centroids like `(25.000000000000004, 0, 0)` in mm. The reply is stored under `find_eval` in `tests/fixtures/probes.json`. A sketch's edges are reported twice (10 for a 5-edge sketch), which is Onshape's own count for qCreatedBy on a sketch.
+- (Q1) `queryString` selections persist (2026-11-24, real `cad_extrude` apply, 4 requests): `ProbeExtrude` (8 mm, sketch `PlateVar`) regenerated **OK**.
+  Read back, its `entities` query keeps `"queryString": "query=qSketchRegion(makeId(\"FYg6qkcmnXyyqI5_0\"), true);"`, and Onshape adds the resolved `"deterministicIds": ["JIC"]` beside it.
+  Still to verify (Task 14, needs budget): that after an upstream edit (e.g. a variable change), the selection follows the query rather than the stored ids. The reply is under `extrude_querystring` in `tests/fixtures/probes.json`.
+  `ProbeExtrude` is left in the foundation test document. Delete it in the UI, or leave it for Task 14 to build on.

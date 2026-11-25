@@ -1,0 +1,245 @@
+{
+  "fs_eval": {
+    "btType": "BTFeatureScriptEvalResponse-1859",
+    "rejectMicroversionSkew": false,
+    "microversionSkew": false,
+    "console": "",
+    "result": {
+      "btType": "com.belmonttech.serialize.fsvalue.BTFSValueArray",
+      "typeTag": "",
+      "value": [
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "2"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(1, 2, 3)"
+        }
+      ]
+    },
+    "libraryVersion": 3132,
+    "serializationVersion": "1.2.10",
+    "sourceMicroversion": "8829152ac14960b05ef9d633",
+    "notices": []
+  },
+  "fs_eval_request_note": "queries must be a JSON object ({}), not a list: a list gives HTTP 400",
+  "find_eval": {
+    "expr": "qCreatedBy(makeId(\"FYg6qkcmnXyyqI5_0\"), EntityType.EDGE)",
+    "result": {
+      "btType": "com.belmonttech.serialize.fsvalue.BTFSValueArray",
+      "typeTag": "",
+      "value": [
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "10"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(25.000000000000004, 0, 0)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(50.00000000000001, 0, 10.000000000000005)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(25.000000000000004, 0, 20)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(0, 0, 10)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(14.999999999999998, 0, 10)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(25.000000000000004, 0, 0)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(50, 0, 10)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(25.000000000000004, 0, 20)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(0, 0, 10)"
+        },
+        {
+          "btType": "com.belmonttech.serialize.fsvalue.BTFSValueString",
+          "typeTag": "",
+          "value": "(14.999999999999998, 0, 10)"
+        }
+      ]
+    }
+  },
+  "extrude_querystring": {
+    "apply": {
+      "applied": true,
+      "feature_type": "extrude",
+      "summary": {
+        "sketch": "PlateVar",
+        "depth": "8 mm",
+        "operation": "new",
+        "end": "blind"
+      },
+      "findings": [],
+      "based_on_version": "8829152ac14960b05ef9d633",
+      "feature_id": "Ffen3QPfCCfQeRo_0",
+      "status": "OK",
+      "requests": 2,
+      "budget_left": 2
+    },
+    "readback": {
+      "btType": "BTMFeature-134",
+      "nodeId": "MjQZfIFbfSzJoO8//",
+      "featureId": "Ffen3QPfCCfQeRo_0",
+      "returnAfterSubfeatures": false,
+      "subFeatures": [],
+      "name": "ProbeExtrude",
+      "suppressed": false,
+      "parameters": [
+        {
+          "btType": "BTMParameterQueryList-148",
+          "libraryRelationType": "DEFAULT",
+          "queries": [
+            {
+              "btType": "BTMIndividualQuery-138",
+              "queryStatement": null,
+              "deterministicIds": [
+                "JIC"
+              ],
+              "queryString": "query=qSketchRegion(makeId(\"FYg6qkcmnXyyqI5_0\"), true);",
+              "nodeId": "Mp7bDdjMe1IgXEB4R"
+            }
+          ],
+          "parameterId": "entities",
+          "parameterName": "",
+          "filter": {
+            "btType": "BTAndFilter-110",
+            "operand1": {
+              "btType": "BTOrFilter-167",
+              "operand1": {
+                "btType": "BTAndFilter-110",
+                "operand1": {
+                  "btType": "BTAndFilter-110",
+                  "operand1": {
+                    "btType": "BTFlatSheetMetalFilter-3018",
+                    "allows": "MODEL_AND_FLATTENED"
+                  },
+                  "operand2": {
+                    "btType": "BTSketchObjectFilter-184",
+                    "objectType": "ANY_SKETCH_OBJECT",
+                    "isSketchObject": true
+                  }
+                },
+                "operand2": {
+                  "btType": "BTEntityTypeFilter-124",
+                  "entityType": "FACE"
+                }
+              },
+              "operand2": {
+                "btType": "BTAndFilter-110",
+                "operand1": {
+                  "btType": "BTAndFilter-110",
+                  "operand1": {
+                    "btType": "BTGeometryFilter-130",
+                    "geometryType": "PLANE"
+                  },
+                  "operand2": {
+                    "btType": "BTFlatSheetMetalFilter-3018",
+                    "allows": "MODEL_ONLY"
+                  }
+                },
+                "operand2": {
+                  "btType": "BTEntityTypeFilter-124",
+                  "entityType": "FACE"
+                }
+              }
+            },
+            "operand2": {
+              "btType": "BTConstructionObjectFilter-113",
+              "isConstruction": false
+            }
+          },
+          "nodeId": "MJ+7ZT3q1AEHral8/"
+        },
+        {
+          "btType": "BTMParameterEnum-145",
+          "nodeId": "M5vpgOYG2GE3jrLYF",
+          "namespace": "",
+          "libraryRelationType": "DEFAULT",
+          "parameterId": "bodyType",
+          "enumName": "ExtendedToolBodyType",
+          "parameterName": "",
+          "value": "SOLID"
+        },
+        {
+          "btType": "BTMParameterEnum-145",
+          "nodeId": "M/7h8bOYkY8AuCv4r",
+          "namespace": "",
+          "libraryRelationType": "DEFAULT",
+          "parameterId": "operationType",
+          "enumName": "NewBodyOperationType",
+          "parameterName": "",
+          "value": "NEW"
+        },
+        {
+          "btType": "BTMParameterEnum-145",
+          "nodeId": "Mj50JkloiHpOnhgSY",
+          "namespace": "",
+          "libraryRelationType": "DEFAULT",
+          "parameterId": "endBound",
+          "enumName": "BoundingType",
+          "parameterName": "",
+          "value": "BLIND"
+        },
+        {
+          "btType": "BTMParameterQuantity-147",
+          "libraryRelationType": "DEFAULT",
+          "parameterId": "depth",
+          "units": "",
+          "parameterName": "",
+          "isInteger": false,
+          "value": 0.0,
+          "expression": "8 mm",
+          "nodeId": "MPTlq/O1P8j66x78H"
+        },
+        {
+          "btType": "BTMParameterBoolean-144",
+          "libraryRelationType": "DEFAULT",
+          "parameterId": "oppositeDirection",
+          "parameterName": "",
+          "value": false,
+          "nodeId": "MPmSMCDknpdtLHdU/"
+        }
+      ],
+      "featureType": "extrude",
+      "namespace": "",
+      "parameterLibraries": [],
+      "suppressionState": null
+    },
+    "state": {
+      "btType": "BTFeatureState-1688",
+      "featureStatus": "OK",
+      "inactive": false
+    }
+  }
+}

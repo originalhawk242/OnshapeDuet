@@ -58,3 +58,8 @@ class Backend(Protocol):
         feature_id is the existing variable's feature (from the last-read feature
         list) to update in place; None creates a new variable."""
         ...
+
+    def eval_featurescript(self, ref: DocRef, script: str) -> dict:
+        """Run a read-only FeatureScript evaluation and return the reply's `result`
+        value. Not a write: no version pin, no cache change. Costs one request."""
+        ...

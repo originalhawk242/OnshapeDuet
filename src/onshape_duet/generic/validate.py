@@ -13,7 +13,10 @@ from .specs import FeatureSpec
 
 TYPED_TOOL_REQUIRED = {"newSketch": "cad_sketch", "assignVariable": "cad_variable"}
 # Milestone 4 adds an entry here as it ships each typed tool; name only tools that exist.
-TYPED_TOOL_AVAILABLE = {"extrude": "cad_extrude"}
+TYPED_TOOL_AVAILABLE = {"extrude": "cad_extrude", "revolve": "cad_revolve", "fillet": "cad_fillet",
+                        "chamfer": "cad_chamfer", "hole": "cad_hole", "shell": "cad_shell",
+                        "booleanBodies": "cad_boolean", "linearPattern": "cad_pattern",
+                        "circularPattern": "cad_pattern", "mirror": "cad_mirror", "cPlane": "cad_plane"}
 
 
 @dataclass
