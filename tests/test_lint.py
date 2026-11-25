@@ -313,3 +313,44 @@ def test_lint_real_through_hole_default_depth_is_not_magic():
 def test_lint_real_blind_hole_depth_is_magic():
     fl = _fl(_real_hole(12))
     assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 12)], fl)}
+
+
+# --- follow-up review I2: hidden spec defaults are not magic numbers ---
+
+def _chamfer():
+    return Feature("F1", "chamfer", "Edge break", "OK",
+                   {"width": "1 mm", "width1": "5 mm", "width2": "5mm", "angle": "45 deg"})
+
+
+_CHAMFER_DEFAULTS = {"chamfer": {"width": "5 mm", "width1": "5 mm", "width2": "5 mm"}}
+
+
+def test_lint_spec_default_is_not_magic():
+    fl = _fl(_chamfer())
+    fs = lint_feature("Rib", [_len("depth", 5)], fl, defaults=_CHAMFER_DEFAULTS)
+    assert "MAGIC_NUMBER" not in {f.code for f in fs}  # width1, width2 (spacing ignored) are defaults
+
+
+def test_lint_without_defaults_still_flags_hidden_default():
+    fl = _fl(_chamfer())
+    assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 5)], fl)}
+    assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 5)], fl,
+                                                           defaults={"extrude": {"depth": "5 mm"}})}
+
+
+def test_lint_value_that_differs_from_default_still_magic():
+    fl = _fl(_chamfer())
+    fs = lint_feature("Rib", [_len("depth", 1)], fl, defaults=_CHAMFER_DEFAULTS)
+    m = [f for f in fs if f.code == "MAGIC_NUMBER"]
+    assert len(m) == 1 and "Edge break" in m[0].message
+
+
+def test_lint_hole_caller_params_count_even_at_their_default():
+    hole = Feature("F1", "hole", "Holes", "OK", {"holeDiameterV3": "5 mm", "holeDepthV3": "12 mm",
+                                                 "endStyleV2": "THROUGH"})
+    fl = _fl(hole)
+    defaults = {"hole": {"holeDiameterV3": "5 mm", "holeDepthV3": "12 mm"}}
+    assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 5)], fl,
+                                                           defaults=defaults)}
+    assert "MAGIC_NUMBER" not in {f.code for f in lint_feature("Rib", [_len("depth", 12)], fl,
+                                                               defaults=defaults)}

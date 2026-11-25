@@ -9,10 +9,12 @@ from .features.builders import (Built, build_boolean, build_chamfer, build_extru
                                 build_hole, build_mirror, build_pattern, build_plane, build_revolve,
                                 build_shell)
 from .features.find import find_script, parse_find_result
+from .features.hole_defaults import HOLE_DEFAULTS
 from .features.params import FeatureSpecError
 from .features.refs import compile_selector, selector_entity
+from .generic.build import default_param
 from .lint import lint_feature
-from .model import FeatureList
+from .model import FeatureList, flatten_params
 from .textsafe import clean
 from .tools import (_FAILURES, _NO_READ, _apply_feature, _ledger_numbers, _locked, _refusal,
                     _reply, _spent, _start, Context)
@@ -25,6 +27,16 @@ _FIND_DRIFT = ("the document changed since the last read (cad_read); the count a
 
 def _out(ctx: Context, start, **fields) -> dict:
     return {**fields, "requests": _spent(ctx, start), "budget_left": _ledger_numbers(ctx)[1]}
+
+
+def _spec_defaults(ctx: Context, ref: DocRef) -> dict[str, dict[str, object]]:
+    """{feature type: {parameter id: default}} from zero-request sources: the generated hole
+    defaults, and the specs already cached for this document (fetched by the generic tools),
+    rendered by default_param as a generic add sends them."""
+    out = {"hole": flatten_params(list(HOLE_DEFAULTS))}
+    for spec in ctx.specs.get(ref) or []:
+        out[spec.type] = flatten_params([d for p in spec.params if (d := default_param(p))])
+    return out
 
 
 @_locked
@@ -81,7 +93,7 @@ def run_feature(ctx: Context, ref: DocRef, name: str, build: Callable[[FeatureLi
     except (FeatureSpecError, *_FAILURES) as e:
         return _reply(ctx, start, False, error=clean(e, 300))
     feature_json = {**built.feature_json, "name": name}
-    findings = lint_feature(name, built.values, fl)
+    findings = lint_feature(name, built.values, fl, defaults=_spec_defaults(ctx, ref))
     extra = {"feature_type": feature_json["featureType"], "summary": built.summary,
              "findings": [f.to_dict() for f in findings],
              "based_on_version": clean(based, 64)}

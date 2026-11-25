@@ -113,17 +113,33 @@ def lint_sketch(spec: dict, report: DofReport, name: str,
 _HOLE_CALLER_PARAMS = ("holeDiameterV3", "holeDepthV3")
 
 
-def _lint_params(f) -> dict:
-    """A hole carries ~160 fixed defaults (e.g. 12 mm); only the caller-set ones can be magic."""
+def _norm(expr: str) -> str:
+    return "".join(expr.split()).lower()
+
+
+def _lint_params(f, defaults: dict[str, dict[str, object]] | None = None) -> dict:
+    """The parameters of an existing feature that can hold a magic number. A hole carries ~160
+    fixed defaults (e.g. 12 mm); only the caller-set ones count, even at their default value.
+    Any other feature drops a parameter equal to its spec default (`defaults`, per type), since
+    generic adds and the Onshape UI store every hidden default."""
     if f.type == "hole":
         # a through hole carries the spec default depth (12 mm), which is not a caller value
         blind = f.params.get("endStyleV2") == "BLIND"
         return {k: f.params[k] for k in _HOLE_CALLER_PARAMS
                 if k in f.params and (blind or k != "holeDepthV3")}
-    return f.params
+    known = (defaults or {}).get(f.type)
+    if not known:
+        return f.params
+    return {k: v for k, v in f.params.items()
+            if not (isinstance(v, str) and isinstance(known.get(k), str)
+                    and _norm(v) == _norm(known[k]))}
 
 
-def lint_feature(name: str, values: list[Value], fl: FeatureList) -> list[Finding]:
+def lint_feature(name: str, values: list[Value], fl: FeatureList, *,
+                 defaults: dict[str, dict[str, object]] | None = None) -> list[Finding]:
+    """`defaults`: {feature type: {parameter id: spec default}} for the types whose spec is
+    known; an existing parameter at its spec default is not a magic number. None (or a type
+    missing from it) checks every parameter of that feature."""
     out: list[Finding] = []
     if DEFAULT_NAME.fullmatch(str(name)):
         out.append(Finding("warn", "DEFAULT_NAME",
@@ -165,7 +181,7 @@ def lint_feature(name: str, values: list[Value], fl: FeatureList) -> list[Findin
         hit = next((f for f in fl.features if f.type != VARIABLE_FEATURE_TYPE
                     and any(isinstance(p, str) and (m := parse_length_mm(p, require_unit=True)) is not None
                             and abs(m - a.literal) <= 1e-9
-                            for p in _lint_params(f).values())), None)
+                            for p in _lint_params(f, defaults).values())), None)
         if hit is not None:
             out.append(Finding("warn", "MAGIC_NUMBER",
                                f"{clean(a.arg)}: the literal {a.literal:g} mm also appears "

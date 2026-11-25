@@ -1,3 +1,7 @@
+import gzip
+import json
+from pathlib import Path
+
 import pytest
 
 from onshape_duet.backends.fake import FakeBackend
@@ -5,8 +9,8 @@ from onshape_duet.budget import Ledger
 from onshape_duet.cache import DocCache
 from onshape_duet.config import Config
 from onshape_duet.docref import DocRef
-from onshape_duet.feature_tools import cad_extrude
-from onshape_duet.tools import Context, cad_read, cad_sketch, cad_variable
+from onshape_duet.feature_tools import cad_extrude, cad_hole
+from onshape_duet.tools import Context, cad_feature_add, cad_read, cad_sketch, cad_variable
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 SK = {"plane": "Front", "entities": [{"id": "c", "type": "circle", "center": [0, 0], "radius": 4}],
@@ -255,3 +259,48 @@ def test_pattern_angle_default_is_none(with_sketch):
     assert out["applied"] is False and "angle" in out["error"]
     out = cad_pattern(ctx, REF, "Ring", "circular", ["Base"], 3, axis=edge)
     assert out["summary"]["angle"] == "360 deg"
+
+
+# --- follow-up review I2: hidden spec defaults stored by generic adds are not magic numbers ---
+LIVE_SPECS = json.load(gzip.open(Path(__file__).parent / "fixtures" / "feature_specs.json.gz"))["kept"]
+
+
+def _generic_chamfer(ctx, backend):
+    backend.specs_json = {"featureSpecs": LIVE_SPECS}
+    out = cad_feature_add(ctx, REF, "chamfer", "Edge break", {"width": "1 mm"}, apply=True)
+    assert out["applied"] is True
+    # the chamfer stored its hidden defaults, among them width1 = width2 = 5 mm
+    chamfer = next(f for f in ctx.read(REF).features if f.name == "Edge break")
+    assert chamfer.params["width1"] == chamfer.params["width2"] == "5 mm"
+
+
+def test_generic_default_is_not_magic_when_specs_cached(with_sketch):
+    ctx, backend, _ = with_sketch
+    _generic_chamfer(ctx, backend)
+    assert ctx.specs.get(REF)  # fetched by the generic add, no extra request needed
+    before = ctx.ledger.used
+    out = cad_extrude(ctx, REF, "Body", "Base", 5)
+    assert "MAGIC_NUMBER" not in {f["code"] for f in out["findings"]}
+    assert ctx.ledger.used == before  # the defaults come from the cache: zero requests
+    out = cad_extrude(ctx, REF, "Body", "Base", 1)  # the caller's own width still counts
+    assert [f["code"] for f in out["findings"]] == ["MAGIC_NUMBER"]
+    assert "Edge break" in out["findings"][0]["message"]
+
+
+def test_generic_default_still_magic_without_cached_specs(with_sketch):
+    """Known limitation: with no spec cached for chamfer, its hidden defaults look like literals."""
+    ctx, backend, _ = with_sketch
+    _generic_chamfer(ctx, backend)
+    ctx.specs.clear()
+    out = cad_extrude(ctx, REF, "Body", "Base", 5)
+    assert [f["code"] for f in out["findings"]] == ["MAGIC_NUMBER"]
+    assert "Edge break" in out["findings"][0]["message"]
+
+
+def test_typed_hole_diameter_is_still_magic(with_sketch):
+    ctx, *_ = with_sketch
+    assert cad_hole(ctx, REF, "Holes", "Base", ["c.center"], 5, apply=True)["applied"] is True
+    out = cad_extrude(ctx, REF, "Body", "Base", 5)  # holeDiameterV3 = 5 mm, the spec default too
+    assert [f["code"] for f in out["findings"]] == ["MAGIC_NUMBER"]
+    assert "Holes" in out["findings"][0]["message"]
+    assert "MAGIC_NUMBER" not in {f["code"] for f in cad_extrude(ctx, REF, "Body", "Base", 12)["findings"]}
