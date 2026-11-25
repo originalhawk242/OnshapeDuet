@@ -2,12 +2,14 @@
 
 Usage: python scripts/capture_features.py <part-studio-url> <out_dir> [--skip-probes]
 
-1. GET featurespecs -> feature_specs.json (the specs for the feature types we build).
+1. GET featurespecs -> feature_specs.json.gz (gzipped; the specs for the feature types we build).
 2. GET features -> doc_features.json (verbatim).
-3. POST a tiny FeatureScript eval -> probes.json["fs_eval"] (skipped by --skip-probes).
+3. POST a tiny FeatureScript eval -> probes.json["fs_eval"] (skipped by --skip-probes). Other
+   keys already in probes.json (find_eval, extrude_querystring, ...) are kept.
 Nothing is written to the document. Not imported by the package.
 """
 import argparse
+import gzip
 import json
 import os
 import sys
@@ -25,6 +27,20 @@ WANTED = {"extrude", "revolve", "fillet", "chamfer", "hole", "shell", "linearPat
 def dump(path: Path, data) -> None:
     path.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n", encoding="utf-8")
     print(f"wrote {path}")
+
+
+def dump_gz(path: Path, data) -> None:
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        json.dump(data, f)
+    print(f"wrote {path}")
+
+
+def merge_probes(path: Path, new: dict) -> dict:
+    """Existing probes.json keys survive a rerun; only the keys captured now are replaced."""
+    old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if not isinstance(old, dict):
+        raise SystemExit(f"capture: {path} is not a JSON object; not overwriting it")
+    return {**old, **new}
 
 
 def main() -> None:
@@ -49,7 +65,7 @@ def main() -> None:
             raise SystemExit(f"capture: no 'featureSpecs' in the reply; top-level keys: {keys}")
         kept = [s for s in specs if s.get("featureType") in WANTED]
         seen = sorted({s.get("featureType") for s in specs if s.get("featureType")})
-        dump(args.out_dir / "feature_specs.json", {"kept": kept, "featureTypes_seen": seen})
+        dump_gz(args.out_dir / "feature_specs.json.gz", {"kept": kept, "featureTypes_seen": seen})
         missing = sorted(WANTED - {s["featureType"] for s in kept})
         if len(WANTED) - len(missing) < 10:
             print(f"WARNING: fewer than 10 wanted types found; missing: {missing}", file=sys.stderr)
@@ -61,10 +77,10 @@ def main() -> None:
             try:
                 probes["fs_eval"] = be._ok(be._request(
                     "POST", path.replace("/features", "/featurescript"),
-                    body={"script": SCRIPT, "queries": []}))
+                    body={"script": SCRIPT, "queries": {}}))  # an object: a list gives HTTP 400
             except RuntimeError as e:
                 probes["fs_eval"] = {"error": str(e)}
-            dump(args.out_dir / "probes.json", probes)
+            dump(args.out_dir / "probes.json", merge_probes(args.out_dir / "probes.json", probes))
     finally:
         print(f"requests charged: {ctx.ledger.used - used_before}", file=sys.stderr)
 

@@ -1,4 +1,4 @@
-"""MCP server (stdio) exposing cad_status, cad_read, cad_sketch, cad_variable."""
+"""MCP server (stdio) exposing the OnshapeDuet tools."""
 from __future__ import annotations
 
 import os

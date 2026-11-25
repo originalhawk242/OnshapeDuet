@@ -1,4 +1,4 @@
-"""Typed-feature tools (read-only ones so far)."""
+"""Typed-feature tools: cad_find (read-only) and the typed feature writes (dry run by default)."""
 from __future__ import annotations
 
 from collections.abc import Callable

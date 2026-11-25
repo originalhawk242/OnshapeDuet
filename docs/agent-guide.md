@@ -73,12 +73,25 @@ Workflow: `cad_status` -> `cad_read` -> `cad_find(evaluate=True)` for any non-tr
 
 All of them are dry runs unless `apply=True`, are refused if the document changed since the last `cad_read`, and use the REFUSE/WARN rule above.
 
-**References** are by feature name (resolved to ids locally). **Values:**
+**References** are by feature name (resolved to ids locally). The exceptions are revolve `axis` and hole `points`: they are entity ids inside a sketch created with `cad_sketch` (for example `"box.left"` for a rectangle side, `"c1.center"` for a circle centre, or a `point` entity id such as `"p1"`). A sketch drawn by hand in the Onshape UI has no such ids, so it cannot be referenced this way. Ids are letters, digits and underscores, dot-separated, at most 64 characters.
+
+**Values:**
 - Lengths: a number in mm, `"<n> mm|cm|m|in"`, or `"#variable"` (length variables only).
 - Angles: degrees as a number, or `"<n> deg"`. Variables are not supported yet.
 - Counts: integers 2..10000.
 
-**Selectors** (`edges`, `faces`, `tools`, `direction`, `axis`, face-plane bases): a dict, or a list of 1 to 8 dicts (union). Unknown keys are refused.
+**Selectors** (`edges`, `faces`, boolean `tools` and `targets`, pattern `direction` and `axis`, face-plane bases): a dict, or a list of 1 to 8 dicts (union). Every dict in a list must use the same `entity`. Unknown keys are refused.
+
+Entities each slot accepts (others are refused):
+
+| tool, slot | entity |
+|---|---|
+| `cad_fillet` / `cad_chamfer` `edges` | `edge` or `face` (a face selects all its edges) |
+| `cad_shell` `faces` | `face` |
+| `cad_boolean` `tools`, `targets` | `body` |
+| `cad_pattern` linear `direction` | `edge` or `face` |
+| `cad_pattern` circular `axis` | `edge` |
+| plane bases (`cad_plane`, `cad_mirror`, `cad_sketch`) | `face` with geometry `plane` or a cap |
 
 | key | values | meaning |
 |---|---|---|

@@ -212,7 +212,8 @@ Captured from the foundation test document with `scripts/capture_features.py` (6
 - (Q2) `POST .../featurescript` needs `"queries": {}` (a JSON object). A list gives HTTP 400. The reply is
   `BTFeatureScriptEvalResponse-1859` with `result` = `{"btType": "com.belmonttech.serialize.fsvalue.BTFSValueArray", "value": [{"btType": "com.belmonttech.serialize.fsvalue.BTFSValueString", "value": "2"}, ...]}`.
   `toString(vector(1, 2, 3))` renders as `"(1, 2, 3)"`. The reply also carries `sourceMicroversion` and `serializationVersion` (`1.2.10` live; the code sends `1.1.23` for writes).
-- (Q1) Whether `queryString` selections persist: still open. It is answered by live-applying `build_extrude` right after Task 7 and `build_fillet` after Task 10.
+- (Q1) Whether `queryString` selections persist: PASS for extrude (see the Q1 result below). Fillet and chamfer
+  persistence, and selections following an upstream edit, remain open items (listed at the end).
 - `cad_find` script verified live (2026-11-24, 1 request): `find_script` with the bare `function(context is Context, queries is map)` form evaluated `qCreatedBy(makeId("FYg6qkcmnXyyqI5_0"), EntityType.EDGE)` (sketch `PlateVar`) → count 10, centroids like `(25.000000000000004, 0, 0)` in mm. The reply is stored under `find_eval` in `tests/fixtures/probes.json`. A sketch's edges are reported twice (10 for a 5-edge sketch), which is Onshape's own count for qCreatedBy on a sketch.
 - (Q1) `queryString` selections persist (2026-11-24, real `cad_extrude` apply, 4 requests): `ProbeExtrude` (8 mm, sketch `PlateVar`) regenerated **OK**.
   Read back, its `entities` query keeps `"queryString": "query=qSketchRegion(makeId(\"FYg6qkcmnXyyqI5_0\"), true);"`, and Onshape adds the resolved `"deterministicIds": ["JIC"]` beside it.

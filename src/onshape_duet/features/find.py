@@ -1,8 +1,7 @@
 """Read-only selection preview: the FeatureScript template and its reply parser.
 
-UNVERIFIED LIVE until Task 14: the endpoint, request body and reply shape are
-verified (tests/fixtures/probes.json, fs_eval), but the script body below has
-not been run against Onshape yet.
+Verified live (a0a2432): the endpoint, request body, reply shape and this script
+body (tests/fixtures/probes.json, fs_eval and find_eval).
 
 The expression spliced in is a compiled selector (refs.compile_selector): only
 enum-mapped text and validated feature ids, never caller text. The script

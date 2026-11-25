@@ -301,10 +301,36 @@ def test_server_tools_hold_the_context_lock(tmp_path):
     assert held and all(held)
 
 
-@pytest.mark.parametrize("tool,args", [
-    ("cad_variable", {"name": "w", "expression": "1 mm"}),
-    ("cad_sketch", {"name": "s", "spec": {}}),
-])
+_EDGE = {"entity": "edge", "created_by": "Body"}
+# Minimal valid arguments (besides url and apply) for every write tool that takes `apply`.
+WRITE_TOOLS = {
+    "cad_variable": {"name": "w", "expression": "1 mm"},
+    "cad_sketch": {"name": "s", "spec": {}},
+    "cad_extrude": {"name": "B", "sketch": "S", "depth": 5},
+    "cad_plane": {"name": "P", "base": "Top", "offset": 5},
+    "cad_revolve": {"name": "R", "sketch": "S", "axis": "box.left"},
+    "cad_fillet": {"name": "F", "edges": _EDGE, "radius": 1},
+    "cad_chamfer": {"name": "C", "edges": _EDGE, "distance": 1},
+    "cad_shell": {"name": "H", "faces": {"entity": "face", "created_by": "Body"}, "thickness": 1},
+    "cad_boolean": {"name": "U", "operation": "union",
+                    "tools": {"entity": "body", "created_by": "Body"}},
+    "cad_pattern": {"name": "Row", "kind": "linear", "features": ["Body"], "count": 2,
+                    "direction": _EDGE, "spacing": 5},
+    "cad_mirror": {"name": "M", "features": ["Body"], "plane": "Top"},
+    "cad_hole": {"name": "D", "sketch": "S", "points": ["p1"], "diameter": 3},
+    "cad_feature_add": {"feature_type": "cPlane", "name": "P", "params": {}},
+    "cad_feature_update": {"feature": "P", "params": {"offset": "5 mm"}},
+}
+
+
+def test_write_tools_table_covers_every_tool_with_apply(tmp_path):
+    ctx, _, _ = make(tmp_path)
+    tools = asyncio.run(server.build_server(ctx).list_tools())
+    with_apply = {t.name for t in tools if "apply" in (t.input_schema or {}).get("properties", {})}
+    assert with_apply == set(WRITE_TOOLS)
+
+
+@pytest.mark.parametrize("tool,args", sorted(WRITE_TOOLS.items()))
 @pytest.mark.parametrize("apply", ["yes", "1", 1, "true"])
 def test_apply_must_be_a_real_boolean(tmp_path, tool, args, apply):
     ctx, backend, _ = make(tmp_path)
