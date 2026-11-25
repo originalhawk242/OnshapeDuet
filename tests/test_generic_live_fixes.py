@@ -324,3 +324,20 @@ def test_empty_selection_splits_known_from_unchecked():
     msg = next(f.message for f in p.findings if f.code == "EMPTY_SELECTION")
     assert "not checked here: entities," in msg
     assert param_value({"btType": "BTMParameterFeatureList-1749", "featureIds": []}) == "(none)"
+
+
+# --- follow-up review M2: lookup tables render as their value, not as a btType ---
+
+def test_lookup_table_renders_its_value():
+    p = {"btType": "BTMParameterLookupTablePath-1419", "parameterId": "isoHoleTableEx",
+         "namespace": "", "value": {"size": "5", "holeType": "Drilled"}}
+    assert param_value(p) == "{size: 5, holeType: Drilled}"
+
+
+def test_lookup_table_value_is_cleaned_and_truncated():
+    p = {"btType": "BTMParameterLookupTablePath-1419", "parameterId": "t",
+         "value": {"size\n": "a\x1bb", "k": "x" * 500, "n": 3}}
+    out = param_value(p)
+    assert "\n" not in out and "\x1b" not in out and len(out) <= 200
+    assert out.startswith("{size")
+    assert param_value({"btType": "BTMParameterLookupTablePath-1419", "value": None}) == "{}"

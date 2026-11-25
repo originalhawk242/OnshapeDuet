@@ -101,7 +101,16 @@ def param_value(p: dict, fl: FeatureList | None = None) -> str:
         return ", ".join(clean(i, 64) for i in ids) if ids else "(none)"
     if bt.startswith("BTMParameterArray"):
         return _array(p, fl)
+    if bt.startswith("BTMParameterLookupTablePath"):
+        return _lookup(p)
     return f"<{clean(bt or '?', 60)}>"
+
+
+def _lookup(p: dict) -> str:
+    """A lookup table (e.g. hole size) as its value: {size: 5, holeType: Drilled}."""
+    v = p.get("value")
+    pairs = v.items() if isinstance(v, dict) else ()
+    return clean("{" + ", ".join(f"{clean(k, 60)}: {clean(x, 60)}" for k, x in pairs) + "}", _MAX)
 
 
 def _feature_names(p: dict, fl: FeatureList) -> str:
