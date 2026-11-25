@@ -151,3 +151,11 @@ Captured from the foundation test document with `scripts/capture_features.py` (6
   Read back, its `entities` query keeps `"queryString": "query=qSketchRegion(makeId(\"FYg6qkcmnXyyqI5_0\"), true);"`, and Onshape adds the resolved `"deterministicIds": ["JIC"]` beside it.
   Still to verify (Task 14, needs budget): that after an upstream edit (e.g. a variable change), the selection follows the query rather than the stored ids. The reply is under `extrude_querystring` in `tests/fixtures/probes.json`.
   `ProbeExtrude` is left in the foundation test document. Delete it in the UI, or leave it for Task 14 to build on.
+
+### Typed features: open live items
+
+- [ ] Hole feature variants: which of LEGACY / V2 / V3 does Onshape's hole read from what we send?
+- [ ] Shell `oppositeDirection` = outward: confirm true grows the wall outward.
+- [ ] Selections follow upstream edits: change a variable (e.g. `t`) and confirm queryString selections re-evaluate and every dependent feature regenerates.
+- [ ] Fillet and chamfer edge `queryString` persistence (extrude is verified; these are not yet).
+- [ ] `serializationVersion`: the code sends 1.1.23, live reports 1.2.10. Check nothing depends on the difference.
