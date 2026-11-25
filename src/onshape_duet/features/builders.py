@@ -193,7 +193,8 @@ def build_shell(fl: FeatureList, *, faces, thickness, outward: bool = False) -> 
     params = [query, p_qty("thickness", t), p_bool("oppositeDirection", outward)]
     return Built(feature("shell", "", params), [t],
                  {"faces": _clean_deep(faces), "thickness": t.expr, "outward": outward,
-                  "note": f"shell direction (outward): {UNVERIFIED_LIVE}"})
+                  "note": f"shell direction: outward=false (inward) is verified live; "
+                           f"outward=true is {UNVERIFIED_LIVE}"})
 
 
 _BOOLEAN_OPS = {"union": "UNION", "subtract": "SUBTRACTION", "intersect": "INTERSECTION"}
@@ -322,7 +323,8 @@ def build_hole(fl: FeatureList, *, sketch: str, points, diameter, depth=None,
     params.append(p_bool("oppositeDirection", False))
     summary = {"sketch": clean(sketch, 100), "points": ids, "diameter": d.expr,
                "depth": values[1].expr if depth is not None else None,
-               "note": f"hole settings (LEGACY/V2/V3 variants): {UNVERIFIED_LIVE}"}
+               "note": "verified live: through and blind holes regenerate and cut; Onshape reports "
+                       "status INFO (REGEN_INFO) when the diameter is not a standard table size"}
     merged = {d["parameterId"]: copy.deepcopy(d) for d in HOLE_DEFAULTS}
     for prm in params:  # built values replace the default of the same id; new ids are appended
         merged[prm["parameterId"]] = prm

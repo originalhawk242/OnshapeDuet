@@ -217,12 +217,17 @@ def test_shell_and_hole_replies_carry_unverified_note(with_sketch):
     from onshape_duet.features.builders import UNVERIFIED_LIVE
     ctx, backend, _ = with_sketch
     face = {"entity": "face", "created_by": "Base", "cap": "end"}
-    for call in (lambda a: cad_shell(ctx, REF, "Hollow", face, 2, apply=a),
-                 lambda a: cad_hole(ctx, REF, "Drill", "Base", ["c.center"], 4, apply=a)):
+    shell = lambda a: cad_shell(ctx, REF, "Hollow", face, 2, apply=a)
+    hole = lambda a: cad_hole(ctx, REF, "Drill", "Base", ["c.center"], 4, apply=a)
+    hole_note = ("verified live: through and blind holes regenerate and cut; Onshape reports status "
+                 "INFO (REGEN_INFO) when the diameter is not a standard table size")
+    shell_note = ("shell direction: outward=false (inward) is verified live; "
+                  f"outward=true is {UNVERIFIED_LIVE}")
+    for call, note in ((shell, shell_note), (hole, hole_note)):
         dry = call(False)
-        assert dry["applied"] is False and UNVERIFIED_LIVE in dry["summary"]["note"]
+        assert dry["applied"] is False and dry["summary"]["note"] == note
         done = call(True)
-        assert done["applied"] is True and UNVERIFIED_LIVE in done["summary"]["note"]
+        assert done["applied"] is True and done["summary"]["note"] == note
     assert "unverified against live Onshape: check the result in Onshape after applying" \
         == UNVERIFIED_LIVE
 

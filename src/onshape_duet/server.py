@@ -201,8 +201,8 @@ def build_server(ctx: Context) -> MCPServer:
         faces: a face selector (or a list of them) for the faces to remove, e.g.
         {"entity": "face", "created_by": "Body", "cap": "end"}; edge and body selectors are
         refused. thickness: length number (mm), '2 in' or '#variable'. outward: grow the wall
-        outward instead of inward (default false). The outward mapping is unverified against
-        live Onshape: check the result in Onshape after applying. DRY RUN IS THE DEFAULT:
+        outward instead of inward (default false). outward=false (inward) is verified live;
+        outward=true is unverified live: check the result in Onshape after applying. DRY RUN IS THE DEFAULT:
         nothing is written
         unless apply=True. Show the dry-run result (summary, findings) to the owner, then apply,
         and read afterwards. Read the document (cad_read) before apply; a stale write is
@@ -281,8 +281,9 @@ def build_server(ctx: Context) -> MCPServer:
         """Drill simple holes at sketch points. sketch: name of an existing sketch. points: 1 to
         50 sketch point ids in that sketch (like 'c1.center'). diameter: length number in mm,
         '2 in' or '#variable'. depth: omit for a through hole, or give a length for a blind hole.
-        style: only 'simple' (counterbore and countersink are deferred). The hole settings
-        sent are unverified against live Onshape: check the result in Onshape after applying.
+        style: only 'simple' (counterbore and countersink are deferred). A hole whose
+        diameter is not a standard table size reports status INFO (finding REGEN_INFO), which
+        is expected.
         points must be entity ids of a sketch made with cad_sketch. DRY RUN IS THE DEFAULT:
         nothing is written unless apply=True. Show the dry-run result (summary, findings) to the
         owner, then apply, and read afterwards. Read the document (cad_read) before apply; a

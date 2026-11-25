@@ -196,7 +196,14 @@ def _status_env(tmp_path, status):
     return ctx
 
 
-@pytest.mark.parametrize("status", ["ERROR", "WARNING", "INFO"])
+def test_variable_apply_info_status_is_a_warn_not_an_error(tmp_path):
+    out = cad_variable(_status_env(tmp_path, "INFO"), REF, "w", "1 mm", apply=True)
+    assert out["applied"] is True and out["status"] == "INFO" and "warning" not in out
+    assert [f for f in out["findings"] if f["level"] == "warn" and f["code"] == "REGEN_INFO"]
+    assert not [f for f in out["findings"] if f["code"] == "REGEN_STATUS"]
+
+
+@pytest.mark.parametrize("status", ["ERROR", "WARNING"])
 def test_variable_apply_reports_regeneration_status(tmp_path, status):
     out = cad_variable(_status_env(tmp_path, status), REF, "w", "1 mm", apply=True)
     assert out["applied"] is True and out["status"] == status and "warning" in out

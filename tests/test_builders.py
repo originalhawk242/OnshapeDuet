@@ -248,6 +248,8 @@ def test_build_shell_matches_spec():
     assert p["oppositeDirection"]["value"] is True
     assert p["entities"]["queries"][0]["queryString"]
     assert "isHollow" not in p and "parts" not in p
+    assert b.summary["note"] == ("shell direction: outward=false (inward) is verified live; "
+                                 f"outward=true is {UNVERIFIED_LIVE}")
     assert b.values[0].literal == 2
     assert _by_id(build_shell(FL, faces=FACES, thickness=2))["oppositeDirection"]["value"] is False
 
@@ -402,6 +404,10 @@ def test_pattern_features_deduplicated_in_order():
 from onshape_duet.features.builders import UNVERIFIED_LIVE, build_hole  # noqa: E402
 
 
+HOLE_NOTE = ("verified live: through and blind holes regenerate and cut; Onshape reports status INFO "
+             "(REGEN_INFO) when the diameter is not a standard table size")
+
+
 def _loc(b):
     return [q["queryString"] for q in _by_id(b)["locations"]["queries"]]
 
@@ -423,7 +429,7 @@ def test_build_hole_through_matches_spec():
                        'query=sketchEntityQuery(makeId("Fabc"), EntityType.VERTEX, "p2");']
     assert ps["scope"]["queries"][0]["queryString"] == "query=qAllModifiableSolidBodies();"
     assert b.summary == {"sketch": "Base", "points": ["p1", "p2"], "diameter": "5 mm", "depth": None,
-                         "note": f"hole settings (LEGACY/V2/V3 variants): {UNVERIFIED_LIVE}"}
+                         "note": HOLE_NOTE}
     assert "Fabc" not in repr(b.summary)
     _assert_hole_regen_params(ps)
     assert [v.expr for v in b.values] == ["5 mm"]

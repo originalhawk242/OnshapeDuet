@@ -236,7 +236,14 @@ def _apply_feature(ctx: Context, ref: DocRef, start, feature_json: dict, extra: 
         extra = {**extra, "note": _REFETCHED}
     status = clean(result.feature.status, 40)
     done = {**extra, "feature_id": clean(result.feature.id, 64), "status": status}
-    if status != "OK":
+    if status == "INFO":
+        done["findings"] = [*extra["findings"],
+                            {"level": "warn", "code": "REGEN_INFO",
+                             "message": f"applied; {what} regenerated, and Onshape attached an "
+                                        "information message (for a hole, usually that its size is "
+                                        "not a standard table size); check it in Onshape if that is "
+                                        "unexpected"}]
+    elif status != "OK":
         warning = (f"applied, but regeneration status is {status}: {what} was written; "
                    "inspect and fix it, or delete it")
         done["warning"] = warning
@@ -437,7 +444,12 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     status = clean(result.feature.status, 40)
     if status:  # "" means the backend did not report a regeneration status
         extra["status"] = status
-        if status != "OK":
+        if status == "INFO":
+            extra["findings"] = [*findings, {"level": "warn", "code": "REGEN_INFO",
+                                             "message": "applied; the variable feature regenerated, "
+                                                        "and Onshape attached an information message; "
+                                                        "check it in Onshape if that is unexpected"}]
+        elif status != "OK":
             warning = (f"applied, but the variable feature's regeneration status is {status}: "
                        "the variable was written; inspect and fix it")
             extra["warning"] = warning

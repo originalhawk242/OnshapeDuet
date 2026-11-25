@@ -458,9 +458,10 @@ def _descriptions(tmp_path) -> dict:
 
 def test_unverified_tools_say_so_in_their_docstrings(tmp_path):
     d = _descriptions(tmp_path)
-    for tool in ("cad_shell", "cad_hole"):
-        assert "unverified against live Onshape: check the result in Onshape after applying" \
-            in " ".join(d[tool].split()), tool
+    shell = " ".join(d["cad_shell"].split())
+    assert "outward=true is unverified live" in shell and "outward=false (inward) is verified live" in shell
+    hole = " ".join(d["cad_hole"].split())
+    assert "unverified" not in hole and "REGEN_INFO" in hole and "INFO" in hole
 
 
 def test_docstring_selector_examples_name_a_body_not_the_sketch(tmp_path):

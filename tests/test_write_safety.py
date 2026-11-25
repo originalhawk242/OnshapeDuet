@@ -206,3 +206,14 @@ def test_apply_feature_reports_regen_error(env):  # Review Focus 1
     assert out["applied"] is True and out["status"] == "ERROR"
     assert any(f["code"] == "REGEN_STATUS" for f in out["findings"])
     assert "the fillet" in out["warning"]
+
+
+def test_apply_feature_info_status_is_warn_not_error(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    backend.next_status = "INFO"
+    out = _apply_feature(ctx, REF, _start(ctx), {"featureType": "fillet", "name": "R",
+                         "parameters": []}, {"findings": []}, "the fillet")
+    assert out["applied"] is True and out["status"] == "INFO" and "warning" not in out
+    assert any(f["level"] == "warn" and f["code"] == "REGEN_INFO" for f in out["findings"])
+    assert not any(f["code"] == "REGEN_STATUS" for f in out["findings"])

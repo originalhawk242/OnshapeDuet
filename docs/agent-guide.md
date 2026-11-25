@@ -8,7 +8,7 @@ Workflow: `cad_status` -> `cad_read` -> dry run -> show the owner -> apply -> `c
 4. Show the dry-run result to the owner and get a yes.
 5. Apply (`apply=True`), then `cad_read` again to confirm.
 
-If a write reply says `applied: "unknown"`, or carries a `note` telling you to re-read (for example after creating a variable), run `cad_read` before anything else: the write may have landed, and the next write is refused until you do. A `REGEN_STATUS` error finding means Onshape wrote the feature but it does not regenerate cleanly.
+If a write reply says `applied: "unknown"`, or carries a `note` telling you to re-read (for example after creating a variable), run `cad_read` before anything else: the write may have landed, and the next write is refused until you do. A `REGEN_STATUS` error finding means Onshape wrote the feature but it does not regenerate cleanly. A `REGEN_INFO` warn finding means it regenerated with an information message from Onshape (for a hole, usually a non-standard size); that is not a failure.
 
 ## Generic features
 Typed tools first where one exists. Use the generic tools for native feature types that have no typed tool, for options a typed tool lacks, and for editing features a human made.
