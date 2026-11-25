@@ -1,13 +1,11 @@
 """Compact plain-text outline of a Part Studio for LLM consumption."""
 from __future__ import annotations
 
-import re
-
+from .lint import DEFAULT_NAME as _DEFAULT_NAME
 from .model import Feature, FeatureList, Variable
 from .sketch.solver import DofReport
 from .textsafe import clean
 
-from .lint import DEFAULT_NAME as _DEFAULT_NAME
 _MAX_VALUE_LEN = 40
 
 

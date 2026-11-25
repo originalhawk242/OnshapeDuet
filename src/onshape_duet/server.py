@@ -202,12 +202,12 @@ def build_server(ctx: Context) -> MCPServer:
         {"entity": "face", "created_by": "Body", "cap": "end"}; edge and body selectors are
         refused. thickness: length number (mm), '2 in' or '#variable'. outward: grow the wall
         outward instead of inward (default false). outward=false (inward) is verified live;
-        outward=true is unverified live: check the result in Onshape after applying. DRY RUN IS THE DEFAULT:
-        nothing is written
-        unless apply=True. Show the dry-run result (summary, findings) to the owner, then apply,
-        and read afterwards. Read the document (cad_read) before apply; a stale write is
-        refused. Costs: a dry run is free once the document was read; apply costs 2 requests
-        (version check + write), or 3 when the write reply names no new version."""
+        outward=true is unverified live: check the result in Onshape after applying.
+        DRY RUN IS THE DEFAULT: nothing is written unless apply=True. Show the dry-run result
+        (summary, findings) to the owner, then apply, and read afterwards. Read the document
+        (cad_read) before apply; a stale write is refused. Costs: a dry run is free once the
+        document was read; apply costs 2 requests (version check + write), or 3 when the write
+        reply names no new version."""
         try:
             ref = parse_url(url, ctx.config.base_url)
         except ValueError as e:
