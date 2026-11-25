@@ -180,6 +180,40 @@ G7. **Array patch.** On a feature with an array parameter, `cad_feature_update` 
    `{"items": {"0": {...}}}` (2 requests, +1 if specs are not cached). Pass: only item 0's named parameters change; a
    list value over human-picked geometry is refused with `RAW_GEOMETRY_ID`.
 
+### Generic features: live run (G3-G7, 2026-11-24)
+
+Run with the tool functions directly on typed-features head 37bc3bc in a new Part Studio `GenericLive`
+(element `a9109357fbd6c32e5b0a5c94`) of the foundation test document; G6 also read `TypedLive` (no writes there).
+Setup: `cad_sketch Base` (60 x 40 on Top), `cad_extrude Block` 10 mm. Ledger 127 -> 159 (32 requests, including
+1 to create the element and 2 spent on a write Onshape rejected).
+
+| Check | Result |
+|---|---|
+| G3 add `cPlane OffPlane` with only `entities` (Block's end cap) and `offset` | **FAIL, fixed**: written, but regenerates with **ERROR**. Onshape does NOT fill omitted parameters. `cad_feature_update` adding `cplaneType=OFFSET`, `oppositeDirection=false` turned it OK |
+| G3, array item without `index2` (`linearPattern skippedInstances [{"index1": 1}]`) | **FAIL, fixed**: HTTP 400 `Parameter skippedInstances ... does not match its feature spec`. Same add with `index2: 0` was accepted, status OK |
+| G5(a) update of the last feature (`OffPlane`, then `Copies distance` 50 -> 60 mm) | PASS: reply has the full parameter list and the same `featureId`; cache spliced, no `note`; the next apply went through with no re-read |
+| G7 array patch `{"items": {"0": {"index1": 2}}}` straight after G5(a) | PASS: only `index1` of item 0 changed, `index2` kept |
+| G4 + G5(b) update a middle feature (`OffPlane offset` 5 -> 8 mm, `Copies` after it) | PASS: accepted, read back 8 mm with every other parameter unchanged; reply carried the re-read `note`; the next apply was refused at 0 requests until `cad_read` |
+| G6 `cad_inspect` on TypedLive Fillet, Chamfer, Shell, Union, Mirror, Pattern, Hole and GenericLive Copies | Query strings and array items render. **Fixed**: feature lists showed raw ids (now names), a one-item array rendered on the label line |
+
+Facts learned:
+- Onshape does not apply spec defaults for parameters missing from a feature write. Depending on the feature it
+  regenerates with ERROR (cPlane without `cplaneType`) or rejects the write with HTTP 400 (array item missing a
+  parameter); a missing lookup table fails a FeatureScript precondition (hole `isoHoleTableEx`, found by the
+  typed-features session). Fix: a generic add sends every omitted parameter that has a spec default (scalars and lookup
+  tables, conditional ones too) and fills omitted item parameters of a full array item. `defaults_applied` lists them.
+- After an update, Onshape rewrites the feature's selections, ours included, as `query=qCompressed(1.0,"...")` (opaque).
+  Sending them back in later updates works (OffPlane was updated twice). `cad_inspect` now shows
+  `selection compressed by Onshape` instead of the blob.
+- A spec fetch is per process, so a fresh process pays 1 request on its first generic call.
+
+Open generic items:
+- [ ] G3b: re-run G3 live with the defaults fix (expect status OK with only `entities` and `offset` given; ~3 requests).
+- [ ] G6 `N geometry ids (set in Onshape)`: no human-picked (id-only) selection was available; still offline-only.
+- [ ] G7 refusal of a list over human-picked array items (`RAW_GEOMETRY_ID`): no such feature live; unit-tested only.
+- [ ] Why Onshape compresses selections on update, and whether a compressed selection still follows upstream edits
+  like our readable queries do.
+
 ## Live results (recorded)
 
 - **Server-side skew rejection does NOT prevent the write.** Sending `sourceMicroversion`
