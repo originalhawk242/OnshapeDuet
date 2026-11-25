@@ -27,6 +27,7 @@ from ..generic.specs import FeatureSpec, parse_feature_specs
 from ..model import Feature, FeatureList, Variable, WriteResult, flatten_params
 from ..variables import (VARIABLE_EXPR_PARAM, VARIABLE_FEATURE_NAME, VARIABLE_FEATURE_TYPE, VARIABLE_NAME_PARAM,
                          variables_from_features)
+from ..textsafe import clean
 from .base import PostWriteError, StaleVersion
 
 # --- Unverified endpoint paths (Task 12) -----------------------------------
@@ -105,6 +106,29 @@ def _parse_feature(f: dict, states: dict) -> Feature:
         )
     except (AttributeError, KeyError, TypeError) as e:
         raise RuntimeError(f"unexpected Onshape response: malformed feature ({type(e).__name__})") from e
+
+
+def _eval_error_detail(notices: object) -> str:
+    """Up to 3 ERROR notices as `<type> line L:C: <message>`; tolerant of malformed input."""
+    if not isinstance(notices, list):
+        return ""
+    parts: list[str] = []
+    for n in notices:
+        if not isinstance(n, dict) or n.get("level") != "ERROR":
+            continue
+        text = clean(n.get("type") or "", 40)
+        trace = n.get("stackTrace")
+        loc = trace[0] if isinstance(trace, list) and trace else None
+        if isinstance(loc, dict) and loc.get("line") is not None and loc.get("column") is not None:
+            text = f"{text} line {clean(loc['line'], 10)}:{clean(loc['column'], 10)}".strip()
+        msg = clean(n.get("message") or "", 150)
+        if msg:
+            text = f"{text}: {msg}" if text else msg
+        if text:
+            parts.append(text)
+        if len(parts) == 3:
+            break
+    return "; ".join(parts)
 
 
 class OnshapeBackend:
@@ -255,6 +279,9 @@ class OnshapeBackend:
                                       body={"script": script, "queries": {}}))
         result = data.get("result")
         if not isinstance(result, dict):
+            detail = _eval_error_detail(data.get("notices"))
+            if detail:
+                raise RuntimeError(clean("FeatureScript evaluation failed: " + detail, 300))
             raise RuntimeError("unexpected Onshape response: missing result")
         mv = data.get("sourceMicroversion")
         return result, (mv if isinstance(mv, str) and mv else None)

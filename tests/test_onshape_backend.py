@@ -527,3 +527,46 @@ def test_eval_featurescript_versioned_returns_source_microversion(tmp_path, repl
     b, ledger = make(tmp_path, handler)
     assert b.eval_featurescript_versioned(REF, "function(){}") == (result, expected)
     assert ledger.used == 1
+
+
+def _eval_reply(notices):
+    return httpx.Response(200, json={"result": None, "notices": notices})
+
+
+def test_eval_featurescript_parse_error_notices_surface(tmp_path):
+    notices = [
+        {"btType": "BTNotice-227", "type": "PARSE", "level": "ERROR",
+         "message": "mismatched input 'box' expecting ID",
+         "stackTrace": [{"btType": "BTLocationInfo-226", "line": 4, "column": 15}]},
+        {"btType": "BTNotice-227", "type": "PARSE", "level": "ERROR",
+         "message": "no viable alternative at input '(box'",
+         "stackTrace": [{"btType": "BTLocationInfo-226", "line": 5, "column": 54}]}]
+    b, ledger = make(tmp_path, lambda req: _eval_reply(notices))
+    with pytest.raises(RuntimeError) as ei:
+        b.eval_featurescript_versioned(REF, "bad")
+    msg = str(ei.value)
+    assert "FeatureScript evaluation failed" in msg
+    assert "mismatched input 'box' expecting ID" in msg and "line 4:15" in msg
+    assert ledger.used == 1
+
+
+def test_eval_featurescript_warning_only_keeps_missing_result(tmp_path):
+    b, _ = make(tmp_path, lambda req: _eval_reply([{"type": "X", "level": "WARNING", "message": "w"}]))
+    with pytest.raises(RuntimeError, match="unexpected Onshape response: missing result"):
+        b.eval_featurescript_versioned(REF, "bad")
+
+
+def test_eval_featurescript_malformed_notices_do_not_crash(tmp_path):
+    b, _ = make(tmp_path, lambda req: _eval_reply([42, {"level": "ERROR"}]))
+    with pytest.raises(RuntimeError) as ei:
+        b.eval_featurescript_versioned(REF, "bad")
+    assert type(ei.value) is RuntimeError
+
+
+def test_eval_featurescript_error_message_is_bounded(tmp_path):
+    notices = [{"type": "PARSE", "level": "ERROR", "message": "m" * 500,
+                "stackTrace": [{"line": 1, "column": 2}]} for _ in range(5)]
+    b, _ = make(tmp_path, lambda req: _eval_reply(notices))
+    with pytest.raises(RuntimeError) as ei:
+        b.eval_featurescript_versioned(REF, "bad")
+    assert "FeatureScript evaluation failed" in str(ei.value) and len(str(ei.value)) <= 300
