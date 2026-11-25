@@ -100,6 +100,24 @@ Also try, as dry runs only (each should be REFUSED, nothing written): a sketch w
 
 Actual result, actual request count, and for every mismatch the raw (trimmed, ids replaced, **no credentials**) response that shows the real shape. Pay special attention to the checklist items that decide whether the tools are usable at all: whether `currentmicroversion` and the feature list's `sourceMicroversion` are comparable (otherwise every apply is refused), whether a write reply carries a new `sourceMicroversion`, the variable model, and the sketch JSON form.
 
+## Part D: typed feature tools, live (needs owner input)
+
+Preconditions: Part C done, a fresh throwaway Part Studio with its URL, and a budget raised by about 35 requests. Apply each step with a dry run first, then `apply=true`, then `cad_read`. After every apply the feature `status` must be `OK`.
+
+1. `cad_variable` `t` = `10 mm`; `cad_sketch` `Base` on `Top` (a rectangle, fully dimensioned, one dimension `#t`).
+2. `cad_extrude` `Body` from `Base`.
+3. `cad_find` on `{"entity": "edge", "edges_of": {"entity": "face", "created_by": "Body", "cap": "end"}}` with `evaluate=true`: expect 4 matches.
+4. `cad_fillet`, then `cad_chamfer` (different edges).
+5. `cad_plane` `Mid`; `cad_sketch` on Body's end cap (face selector); `cad_extrude` `Boss` (operation `add`).
+6. `cad_hole` (points from a sketch), `cad_pattern` (linear), `cad_mirror`.
+7. `cad_shell`.
+8. `cad_revolve` from a sketch on `Front`, then `cad_boolean` union.
+9. Change `t` with `cad_variable`; confirm every feature still regenerates (`cad_read`, and the UI).
+
+Expected cost: about 35 requests. Record each result and request count in [live-checklist.md](live-checklist.md).
+
+Owner UI check: open each feature in Onshape. The selections must be visible (highlighted entities), and one hand edit (for example the fillet radius) must work and regenerate.
+
 ## Reporting
 
 End with a short report to the owner:
