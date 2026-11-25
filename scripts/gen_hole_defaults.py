@@ -70,7 +70,8 @@ def render(defaults: list[dict]) -> str:
 
 
 def load_hole_spec() -> dict:
-    specs = json.loads(gzip.open(SPECS, "rt").read())
+    with gzip.open(SPECS, "rt") as fh:
+        specs = json.loads(fh.read())
     return next(s for s in specs["kept"] if s.get("featureType") == "hole")
 
 

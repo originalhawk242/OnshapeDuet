@@ -23,7 +23,9 @@ def _editable_numbers(feature: Feature) -> str:
         if isinstance(val, (int, float)) or (isinstance(val, str) and val.strip()):
             entries[key] = f"{clean(key, 30)}={clean(val, _MAX_VALUE_LEN)}"
     if feature.type == "hole":
-        shown = [entries[k] for k in _HOLE_KEYS if k in entries]
+        blind = feature.params.get("endStyleV2") == "BLIND"
+        shown = [entries[k] for k in _HOLE_KEYS
+                 if k in entries and (blind or k != "holeDepthV3")]
     else:
         shown = list(entries.values())[:_MAX_PARAMS]
     parts = list(shown)

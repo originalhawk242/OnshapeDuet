@@ -291,7 +291,25 @@ def test_lint_feature_descriptive_name_does_not_warn():
 
 def test_lint_existing_hole_only_caller_params_count_for_magic_number():
     hole = Feature("F1", "hole", "Holes", "OK", {"holeDiameterV3": "5 mm", "holeDiameter": "12 mm",
-                                                 "holeDepthV3": "5 mm", "someDefault": "12 mm"})
+                                                 "holeDepthV3": "5 mm", "endStyleV2": "BLIND", "someDefault": "12 mm"})
     fl = _fl(hole)
     assert "MAGIC_NUMBER" not in {f.code for f in lint_feature("Rib", [_len("depth", 12)], fl)}
     assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 5)], fl)}
+
+
+def _real_hole(depth=None):
+    from onshape_duet.features.builders import build_hole
+    from onshape_duet.model import flatten_params
+    b = build_hole(_fl(Feature("S", "newSketch", "Base", "OK", {})), sketch="Base",
+                   points=["c.center"], diameter=4, depth=depth)
+    return Feature("H", "hole", "Holes", "OK", flatten_params(b.feature_json["parameters"]))
+
+
+def test_lint_real_through_hole_default_depth_is_not_magic():
+    fl = _fl(_real_hole())
+    assert "MAGIC_NUMBER" not in {f.code for f in lint_feature("Rib", [_len("depth", 12)], fl)}
+
+
+def test_lint_real_blind_hole_depth_is_magic():
+    fl = _fl(_real_hole(12))
+    assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 12)], fl)}

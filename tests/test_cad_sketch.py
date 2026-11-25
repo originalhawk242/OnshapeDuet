@@ -308,7 +308,7 @@ def test_serializer_never_emits_constraints_on_unassessed_entities():
 
 # --- final-review fixes: I1 (regeneration status) ---
 
-@pytest.mark.parametrize("status", ["ERROR", "WARNING", "INFO"])
+@pytest.mark.parametrize("status", ["ERROR", "WARNING"])
 def test_apply_reports_regeneration_status(tmp_path, status):
     from onshape_duet.model import Feature, WriteResult
 

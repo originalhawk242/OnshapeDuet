@@ -112,3 +112,19 @@ def test_outline_other_feature_capped_at_12():
     out = render_outline(_fl(Feature("F", "extrude", "Boss", "OK", params)), [])
     assert out.count("=") == 12 and out.endswith(", +3 more (cad_inspect)")
     assert "k11=11 mm" in out and "k12" not in out
+
+
+def _real_hole(depth=None):
+    from onshape_duet.features.builders import build_hole
+    from onshape_duet.model import flatten_params
+    b = build_hole(_fl(Feature("S", "newSketch", "Base", "OK", {})), sketch="Base",
+                   points=["c.center"], diameter=4, depth=depth)
+    return Feature("H", "hole", "Holes", "OK", flatten_params(b.feature_json["parameters"]))
+
+
+def test_outline_through_hole_hides_default_depth_blind_shows_it():
+    through = render_outline(_fl(_real_hole()), [])
+    assert "holeDepthV3" not in through and "endStyleV2=THROUGH" in through
+    assert "more (cad_inspect)" in through
+    blind = render_outline(_fl(_real_hole(12)), [])
+    assert "holeDepthV3=12 mm" in blind

@@ -116,7 +116,10 @@ _HOLE_CALLER_PARAMS = ("holeDiameterV3", "holeDepthV3")
 def _lint_params(f) -> dict:
     """A hole carries ~160 fixed defaults (e.g. 12 mm); only the caller-set ones can be magic."""
     if f.type == "hole":
-        return {k: f.params[k] for k in _HOLE_CALLER_PARAMS if k in f.params}
+        # a through hole carries the spec default depth (12 mm), which is not a caller value
+        blind = f.params.get("endStyleV2") == "BLIND"
+        return {k: f.params[k] for k in _HOLE_CALLER_PARAMS
+                if k in f.params and (blind or k != "holeDepthV3")}
     return f.params
 
 
