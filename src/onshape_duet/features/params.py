@@ -136,6 +136,11 @@ def p_bool(pid: str, v: bool) -> dict:
     return {"btType": "BTMParameterBoolean-144", "parameterId": pid, "value": bool(v)}
 
 
+def p_lookup(pid: str, value: dict) -> dict:
+    return {"btType": "BTMParameterLookupTablePath-1419", "parameterId": pid,
+            "namespace": "", "value": dict(value)}
+
+
 def p_query(pid: str, exprs: list[str]) -> dict:
     return {"btType": "BTMParameterQueryList-148", "parameterId": pid,
             "queries": [{"btType": "BTMIndividualQuery-138", "queryString": f"query={e};"} for e in exprs]}

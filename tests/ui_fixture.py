@@ -20,6 +20,7 @@ _KIND = {  # emitted btType prefix -> spec btType prefix
     "BTMParameterString": "BTParameterSpecString",
     "BTMParameterFeatureList": "BTParameterSpecFeatureList",
     "BTMParameterArray": "BTParameterSpecArray",
+    "BTMParameterLookupTablePath": "BTParameterSpecLookupTablePath",
 }
 
 
@@ -52,6 +53,8 @@ def assert_matches_spec(built: dict, feature_type: str) -> None:
         if emitted == "BTMParameterEnum":
             assert p["enumName"] == sp["defaultValue"]["enumName"], pid
             assert p["value"] in sp["options"], f"{pid}: {p['value']!r} not in {sp['options']}"
+        if emitted == "BTMParameterLookupTablePath":
+            assert set(p["value"]) == set(sp["defaultValue"]["value"]), pid
         if emitted == "BTMParameterQuantity":
             expr = p["expression"].strip()
             if not expr.startswith("#"):  # a variable's unit is not visible here

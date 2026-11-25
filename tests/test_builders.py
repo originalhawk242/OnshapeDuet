@@ -425,6 +425,25 @@ def test_build_hole_through_matches_spec():
     assert b.summary == {"sketch": "Base", "points": ["p1", "p2"], "diameter": "5 mm", "depth": None,
                          "note": f"hole settings (LEGACY/V2/V3 variants): {UNVERIFIED_LIVE}"}
     assert "Fabc" not in repr(b.summary)
+    _assert_hole_regen_params(ps)
+    assert [v.expr for v in b.values] == ["5 mm"]
+
+
+def _assert_hole_regen_params(ps):
+    t = ps["isoHoleTableEx"]
+    assert t["btType"] == "BTMParameterLookupTablePath-1419"
+    assert t["value"] == {"size": "5", "holeType": "Drilled"}
+    assert ps["tipAngleStyle"]["value"] == "DEGREE118"
+    assert ps["tipAngleStyle"]["enumName"] == "TipAngleStyle"
+    assert ps["tipAngleV3"]["expression"] == "118 deg"
+
+
+def test_hole_diameter_4_keeps_default_table():
+    ps = _by_id(build_hole(FL, sketch="Base", points=["p1"], diameter=4))
+    for pid in ("holeDiameter", "holeDiameterV2", "holeDiameterV3"):
+        assert ps[pid]["expression"] == "4 mm"
+    assert ps["isoHoleTableEx"]["value"] == {"size": "5", "holeType": "Drilled"}
+    assert "standard" not in ps["isoHoleTableEx"]["value"]
 
 
 def test_hole_blind_sets_depth():
@@ -435,6 +454,7 @@ def test_hole_blind_sets_depth():
     assert ps["holeDepth"]["expression"] == ps["holeDepthV3"]["expression"] == "8 mm"
     assert ps["holeDiameterV3"]["expression"] == "#d"
     assert len(_loc(b)) == 1 and b.summary["depth"] == "8 mm"
+    _assert_hole_regen_params(ps)
 
 
 @pytest.mark.parametrize("bad", ['p"); x(', "a b", "p\n1", "", 5, None, "a..b", "a;b"])

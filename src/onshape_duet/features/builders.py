@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 
 from onshape_duet.features.params import (FeatureSpecError, Value, count as _count, feature, length,
-                                          p_bool, p_enum, p_features, p_qty, p_query)
+                                          p_bool, p_enum, p_features, p_lookup, p_qty, p_query)
 from onshape_duet.features.params import angle as _angle
 from onshape_duet.features.refs import (PlaneRef, RefError, compile_selector, plane_param, resolve,
                                        selector_entity)
@@ -302,7 +302,12 @@ def build_hole(fl: FeatureList, *, sketch: str, points, diameter, depth=None,
                                     for pt in ids]),
               p_query("scope", ["qAllModifiableSolidBodies()"]),
               p_qty("holeDiameter", d), p_qty("holeDiameterV2", d), p_qty("holeDiameterV3", d),
-              p_enum("startStyle", "HoleStartStyle", "PART")]
+              p_enum("startStyle", "HoleStartStyle", "PART"),
+              # Onshape fills in no omitted parameter: the V2 precondition needs a lookup table
+              # path, and V3 copies tipAngleV3 over tipAngle (live finding, 2026-11-24).
+              p_lookup("isoHoleTableEx", {"size": "5", "holeType": "Drilled"}),
+              p_enum("tipAngleStyle", "TipAngleStyle", "DEGREE118"),
+              p_qty("tipAngleV3", _angle(118, "tipAngleV3"))]
     if depth is None:
         params += [p_enum("endStyle", "HoleEndStyle", "THROUGH"),
                    p_enum("endStyleV2", "HoleEndStyleV2", "THROUGH")]
