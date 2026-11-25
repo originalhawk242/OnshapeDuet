@@ -112,3 +112,10 @@ def test_p_features_shape():
     assert p_features("instanceFunction", ["F1", "F2"]) == {
         "btType": "BTMParameterFeatureList-1749", "featureIds": ["F1", "F2"],
         "parameterId": "instanceFunction"}
+
+
+def test_parse_length_mm_require_unit():
+    assert parse_length_mm("4") == 4.0  # default behaviour unchanged
+    assert parse_length_mm("4", require_unit=True) is None
+    assert parse_length_mm("4 mm", require_unit=True) == 4.0
+    assert parse_length_mm("1 in", require_unit=True) == pytest.approx(25.4)

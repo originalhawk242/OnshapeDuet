@@ -16,8 +16,10 @@ from .sketch.solver import DofReport
 from .textsafe import clean
 from .variables import VARIABLE_FEATURE_TYPE, find_variable
 
-_DEFAULT_NAME = re.compile(
-    r"(Sketch|Extrude|Fillet|Revolve|Chamfer|Shell|Hole|Boolean|Pattern|Mirror|Plane) \d+")
+# Onshape's own default feature names ("Linear pattern 1", "Plane 2", ...).
+DEFAULT_NAME = re.compile(
+    r"(Sketch|Extrude|Fillet|Revolve|Chamfer|Shell|Hole|Boolean|Pattern|Linear pattern"
+    r"|Circular pattern|Mirror|Plane|Offset plane) \d+")
 
 
 @dataclass(frozen=True)
@@ -90,7 +92,7 @@ def lint_sketch(spec: dict, report: DofReport, name: str,
                                f"sketch is under-constrained ({report.dof} degrees of freedom "
                                f"left); free: {_list(report.free) or 'unknown'}"))
 
-    if _DEFAULT_NAME.fullmatch(str(name)):
+    if DEFAULT_NAME.fullmatch(str(name)):
         out.append(Finding("warn", "DEFAULT_NAME",
                            f"name {clean(name)!r} looks like a default; give it a "
                            "descriptive name"))
@@ -110,7 +112,7 @@ def lint_sketch(spec: dict, report: DofReport, name: str,
 
 def lint_feature(name: str, values: list[Value], fl: FeatureList) -> list[Finding]:
     out: list[Finding] = []
-    if _DEFAULT_NAME.fullmatch(str(name)):
+    if DEFAULT_NAME.fullmatch(str(name)):
         out.append(Finding("warn", "DEFAULT_NAME",
                            f"name {clean(name)!r} looks like a default; give it a "
                            "descriptive name"))
@@ -148,7 +150,7 @@ def lint_feature(name: str, values: list[Value], fl: FeatureList) -> list[Findin
                                "(cad_variable) and reference it with '#name'"))
             continue
         hit = next((f for f in fl.features if f.type != VARIABLE_FEATURE_TYPE
-                    and any(isinstance(p, str) and (m := parse_length_mm(p)) is not None
+                    and any(isinstance(p, str) and (m := parse_length_mm(p, require_unit=True)) is not None
                             and abs(m - a.literal) <= 1e-9
                             for p in f.params.values())), None)
         if hit is not None:

@@ -108,11 +108,13 @@ def count(x, arg: str, *, minimum: int = 2) -> Value:
     return Value("count", str(n), float(n), None, arg)
 
 
-def parse_length_mm(expr: str) -> float | None:
+def parse_length_mm(expr: str, *, require_unit: bool = False) -> float | None:
+    """mm value of a literal length expression, else None. A bare number counts as mm
+    unless require_unit=True (then only "<n> mm|cm|m|in" parse)."""
     if not isinstance(expr, str):
         return None
     m = _LEN_RE.match(expr)
-    if not m:
+    if not m or (require_unit and m.group(2) is None):
         return None
     mm = float(m.group(1)) * _UNIT_MM[m.group(2)]
     return mm if math.isfinite(mm) else None

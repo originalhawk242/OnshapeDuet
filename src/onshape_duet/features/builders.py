@@ -81,7 +81,7 @@ def build_extrude(fl: FeatureList, *, sketch: str, depth=None, operation: str = 
         params.append(p_bool("symmetric", True))
     params += _scope_params(op)
     summary = {"sketch": clean(sketch, 100), "depth": values[0].expr if values else None,
-               "operation": op, "end": end}
+               "operation": op, "end": end, "flip": flip}
     return Built(feature("extrude", "", params), values, summary)
 
 
@@ -109,13 +109,16 @@ def build_plane(fl: FeatureList, *, base: PlaneRef, offset, flip: bool = False) 
 
 
 _SKETCH_ENTITY_ID = re.compile(r"[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*")
+_MAX_SKETCH_ENTITY_ID = 64
 
 
 def _sketch_entity_id(arg: str, val, what: str) -> str:
     """Caller text placed inside a query string: this check is the security boundary."""
-    if not isinstance(val, str) or not _SKETCH_ENTITY_ID.fullmatch(val):
+    if (not isinstance(val, str) or len(val) > _MAX_SKETCH_ENTITY_ID
+            or not _SKETCH_ENTITY_ID.fullmatch(val)):
         raise FeatureSpecError(f"{arg}: expected {what} (letters, digits, underscore, "
-                               f"dot-separated), got {clean(val, 60)!r}")
+                               f"dot-separated, at most {_MAX_SKETCH_ENTITY_ID} characters), "
+                               f"got {clean(val, 60)!r}")
     return val
 
 
@@ -140,7 +143,7 @@ def build_revolve(fl: FeatureList, *, sketch: str, axis: str, angle=360,
     params.append(p_bool("oppositeDirection", flip))
     params += _scope_params(op)
     summary = {"sketch": clean(sketch, 100), "axis": axis, "angle": value.expr,
-               "operation": op, "symmetric": symmetric}
+               "operation": op, "symmetric": symmetric, "flip": flip}
     return Built(feature("revolve", "", params), values, summary)
 
 
@@ -231,7 +234,8 @@ def _feature_ids(fl: FeatureList, features) -> tuple[list[str], list[str]]:
 
 
 def build_pattern(fl: FeatureList, *, kind: str, features, count, direction=None, spacing=None,
-                  axis=None, angle=360) -> Built:
+                  axis=None, angle=None) -> Built:
+    """angle: circular only (None means a full 360); a linear pattern refuses it."""
     kind = _choice("kind", kind, ("linear", "circular"))
     ids, names = _feature_ids(fl, features)
     n = _count(count, "count")
@@ -239,6 +243,9 @@ def build_pattern(fl: FeatureList, *, kind: str, features, count, direction=None
     if kind == "linear":
         if axis is not None:
             raise FeatureSpecError("axis: not allowed for a linear pattern; use direction")
+        if angle is not None:
+            raise FeatureSpecError("angle: not allowed for a linear pattern; it is for circular "
+                                   "patterns only")
         if direction is None:
             raise FeatureSpecError("direction: required for a linear pattern (an edge or face selector)")
         if spacing is None:
@@ -256,7 +263,7 @@ def build_pattern(fl: FeatureList, *, kind: str, features, count, direction=None
         if axis is None:
             raise FeatureSpecError("axis: required for a circular pattern (an edge selector)")
         params.append(_selector_query(axis, fl, "axis", ("edge",), "axis"))
-        a = _angle(angle, "angle")
+        a = _angle(360 if angle is None else angle, "angle")
         params += [p_qty("angle", a), p_qty("instanceCount", n), p_bool("equalSpace", True)]
         values = [a, n]
         summary = {"kind": kind, "features": names, "count": n.expr, "angle": a.expr,

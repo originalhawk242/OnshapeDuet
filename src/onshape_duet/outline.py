@@ -7,9 +7,7 @@ from .model import Feature, FeatureList, Variable
 from .sketch.solver import DofReport
 from .textsafe import clean
 
-_DEFAULT_NAME = re.compile(
-    r"^(Sketch|Extrude|Fillet|Revolve|Chamfer|Shell|Hole|Boolean|Pattern|Mirror|Plane) \d+$"
-)
+from .lint import DEFAULT_NAME as _DEFAULT_NAME
 _MAX_VALUE_LEN = 40
 
 

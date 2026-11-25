@@ -132,7 +132,9 @@ def compile_selector(sel: Selector, fl: FeatureList, arg: str) -> str:
 
 def selector_entity(sel: Selector) -> str:
     items = sel if isinstance(sel, list) else [sel]
-    ents = {s.get("entity") if isinstance(s, dict) else None for s in items}
+    # str check first: a caller value such as ["edge"] is unhashable (TypeError in a set)
+    raw = [s.get("entity") if isinstance(s, dict) else None for s in items]
+    ents = {e if isinstance(e, str) else None for e in raw}
     if len(ents) != 1 or next(iter(ents)) not in _ENTITIES:
         raise RefError(f"selector must have one consistent entity (face, edge or body), got "
                        f"{', '.join(sorted(clean(e) for e in ents))}")

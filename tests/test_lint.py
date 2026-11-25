@@ -267,3 +267,23 @@ def test_lint_clean_feature_has_no_findings():
     v = make_variable_feature("V1", "w", "10 mm")
     fl = _fl(v, Feature("F1", "extrude", "Base", "OK", {"depth": "7 mm"}))
     assert lint_feature("Rib", [_len("depth", var="w"), _len("r", 3)], fl) == []
+
+
+# --- final review M3, M6 ---
+
+def test_lint_magic_number_ignores_unitless_counts():
+    fl = _fl(Feature("F1", "linearPattern", "Row", "OK", {"instanceCount": "4", "distance": "9 mm"}))
+    fs = lint_feature("Rib", [_len("depth", 4)], fl)
+    assert "MAGIC_NUMBER" not in {f.code for f in fs}
+    fs = lint_feature("Rib", [_len("depth", 9)], fl)
+    assert "MAGIC_NUMBER" in {f.code for f in fs}
+
+
+@pytest.mark.parametrize("name", ["Linear pattern 1", "Circular pattern 2", "Offset plane 1",
+                                  "Plane 3", "Boolean 1", "Hole 2"])
+def test_lint_feature_onshape_default_names_warn(name):
+    assert ("warn", "DEFAULT_NAME") in _codes(lint_feature(name, [], _fl()))
+
+
+def test_lint_feature_descriptive_name_does_not_warn():
+    assert "DEFAULT_NAME" not in {f.code for f in lint_feature("Linear pattern of ribs", [], _fl())}

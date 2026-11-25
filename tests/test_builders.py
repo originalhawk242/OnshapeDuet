@@ -165,7 +165,7 @@ def test_revolve_unknown_sketch():
 def test_revolve_summary():
     b = build_revolve(FL, sketch="Base", axis="ax", angle=90)
     assert b.summary == {"sketch": "Base", "axis": "ax", "angle": "90 deg",
-                         "operation": "new", "symmetric": False}
+                         "operation": "new", "symmetric": False, "flip": False}
 
 
 # ---- cad_fillet / cad_chamfer builders ----
@@ -453,3 +453,37 @@ def test_hole_points_shape_refused(pts):
 def test_hole_counterbore_refused_with_message(style):
     with pytest.raises(FeatureSpecError, match="counterbore/countersink are deferred"):
         build_hole(FL, sketch="Base", points=["p1"], diameter=5, style=style)
+
+
+# --- final review M2, M4, M5 ---
+
+def test_extrude_and_revolve_summaries_carry_flip():
+    assert build_extrude(FL, sketch="Base", depth=5, flip=True).summary["flip"] is True
+    assert build_extrude(FL, sketch="Base", depth=5).summary["flip"] is False
+    assert build_revolve(FL, sketch="Base", axis="ax", flip=True).summary["flip"] is True
+    assert build_revolve(FL, sketch="Base", axis="ax", angle=90).summary["flip"] is False
+
+
+@pytest.mark.parametrize("n,ok", [(64, True), (65, False)])
+def test_sketch_entity_ids_are_capped_at_64(n, ok):
+    pid = "p" * n
+    for make in (lambda: build_revolve(FL, sketch="Base", axis=pid),
+                 lambda: build_hole(FL, sketch="Base", points=[pid], diameter=4)):
+        if ok:
+            make()
+        else:
+            with pytest.raises(FeatureSpecError, match="64"):
+                make()
+
+
+def test_linear_pattern_refuses_angle():
+    with pytest.raises(FeatureSpecError, match="angle"):
+        build_pattern(PFL, kind="linear", features=["Boss"], count=3, direction=EDGE, spacing=5,
+                      angle=360)
+
+
+def test_circular_pattern_angle_defaults_to_360():
+    b = build_pattern(PFL, kind="circular", features=["Boss"], count=3, axis=EDGE, angle=None)
+    assert _by_id(b)["angle"]["expression"] == "360 deg"
+    b = build_pattern(PFL, kind="circular", features=["Boss"], count=3, axis=EDGE, angle=90)
+    assert _by_id(b)["angle"]["expression"] == "90 deg"

@@ -35,7 +35,8 @@ def test_extrude_dry_run_no_write(with_sketch):
     assert out["applied"] is False and "UNKNOWN_VARIABLE" in out["error"]
     out = cad_extrude(ctx, REF, "Body", "Base", 7)
     assert out["applied"] is False and backend.calls["add_feature"] == 1
-    assert out["summary"] == {"sketch": "Base", "depth": "7 mm", "operation": "new", "end": "blind"}
+    assert out["summary"] == {"sketch": "Base", "depth": "7 mm", "operation": "new", "end": "blind",
+                              "flip": False}
     assert out["feature_type"] == "extrude" and out["findings"] == []
     assert out["based_on_version"]
 
@@ -45,7 +46,8 @@ def test_extrude_dry_run_summary_with_variable(with_sketch):
     assert cad_variable(ctx, REF, "depth", "12 mm", apply=True)["applied"] is True
     ctx.read(REF)
     out = cad_extrude(ctx, REF, "Body", "Base", "#depth")
-    assert out["summary"] == {"sketch": "Base", "depth": "#depth", "operation": "new", "end": "blind"}
+    assert out["summary"] == {"sketch": "Base", "depth": "#depth", "operation": "new", "end": "blind",
+                              "flip": False}
     assert "error" not in out
 
 
@@ -155,7 +157,7 @@ def test_revolve_dry_run_summary(with_sketch):
     out = cad_revolve(ctx, REF, "Spin", "Base", "c", angle=90)
     assert out["applied"] is False and out["feature_type"] == "revolve"
     assert out["summary"] == {"sketch": "Base", "axis": "c", "angle": "90 deg",
-                              "operation": "new", "symmetric": False}
+                              "operation": "new", "symmetric": False, "flip": False}
     out = cad_revolve(ctx, REF, "Spin", "Base", "c", apply=True)
     assert out["applied"] is True
     assert "Spin [revolve] OK" in cad_read(ctx, REF)
@@ -228,3 +230,23 @@ def test_shell_and_hole_replies_carry_unverified_note(with_sketch):
 def test_verified_tools_carry_no_unverified_note(with_sketch):
     ctx, backend, _ = with_sketch
     assert "note" not in cad_extrude(ctx, REF, "Body", "Base", 7)["summary"]
+
+
+# --- final review M1, M2 at the tool layer ---
+
+def test_fillet_unhashable_entity_is_error_dict(with_sketch):
+    from onshape_duet.feature_tools import cad_fillet
+    ctx, backend, _ = with_sketch
+    out = cad_fillet(ctx, REF, "Round", {"entity": ["edge"]}, 2)
+    assert out["applied"] is False and "entity" in out["error"]
+    assert out["requests"] == 0 and "budget_left" in out
+
+
+def test_pattern_angle_default_is_none(with_sketch):
+    from onshape_duet.feature_tools import cad_pattern
+    ctx, backend, _ = with_sketch
+    edge = {"entity": "edge", "created_by": "Base"}
+    out = cad_pattern(ctx, REF, "Row", "linear", ["Base"], 3, direction=edge, spacing=5, angle=90)
+    assert out["applied"] is False and "angle" in out["error"]
+    out = cad_pattern(ctx, REF, "Ring", "circular", ["Base"], 3, axis=edge)
+    assert out["summary"]["angle"] == "360 deg"

@@ -237,13 +237,13 @@ def build_server(ctx: Context) -> MCPServer:
                          count: StrictInt | StrictStr, direction: dict | list | None = None,
                          spacing: StrictFloat | StrictInt | StrictStr | None = None,
                          axis: dict | list | None = None,
-                         angle: StrictFloat | StrictInt | StrictStr = 360,
+                         angle: StrictFloat | StrictInt | StrictStr | None = None,
                          apply: StrictBool = False) -> dict:
         """Repeat existing features. kind: linear or circular. features: 1 to 20 feature
         names. count: number of instances including the original (2 to 10000). linear needs
         direction (an edge or face selector) and spacing (length number in mm, '2 in' or
         '#variable'); circular needs axis (an edge selector) and takes angle (degrees, default
-        360, spread equally). Selectors look like {"entity": "edge", "created_by": "Body"}.
+        360, spread equally); angle is refused for linear. Selectors look like {"entity": "edge", "created_by": "Body"}.
         DRY RUN IS THE DEFAULT: nothing is written unless apply=True. Show the dry-run result
         (summary, findings) to the owner, then apply, and read afterwards. Read the document
         (cad_read) before apply; a stale write is refused. Costs: a dry run is free once the

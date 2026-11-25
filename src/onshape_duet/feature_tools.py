@@ -142,7 +142,7 @@ def cad_boolean(ctx: Context, ref: DocRef, name: str, operation: str, tools, tar
 
 
 def cad_pattern(ctx: Context, ref: DocRef, name: str, kind: str, features, count, direction=None,
-                spacing=None, axis=None, angle=360, apply: bool = False) -> dict:
+                spacing=None, axis=None, angle=None, apply: bool = False) -> dict:
     return run_feature(
         ctx, ref, name,
         lambda fl: build_pattern(fl, kind=kind, features=features, count=count,

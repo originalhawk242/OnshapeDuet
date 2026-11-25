@@ -101,3 +101,12 @@ def test_plane_param_forms():
         plane_param("p", {"entity": "face", "created_by": "Body"}, FL)  # not provably planar
     with pytest.raises(RefError, match="Front"):
         plane_param("p", "Bottom", FL)
+
+
+# --- final review M1: unhashable selector values stay inside the error contract ---
+
+@pytest.mark.parametrize("sel", [{"entity": ["edge"]}, {"entity": {"x": 1}},
+                                 [{"entity": "edge"}, {"entity": ["edge"]}]])
+def test_selector_entity_unhashable_is_refused_not_typeerror(sel):
+    with pytest.raises(RefError, match="one consistent entity"):
+        selector_entity(sel)
