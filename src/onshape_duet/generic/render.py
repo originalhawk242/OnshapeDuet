@@ -57,7 +57,9 @@ def _query(p: dict) -> str:
                        "change them in Onshape)")
     ids = sum(len(q["deterministicIds"]) for q in queries
               if not q.get("queryString") and isinstance(q.get("deterministicIds"), list))
-    parts = strings + ([f"{ids} geometry ids (set in Onshape)"] if ids or not strings else [])
+    if not strings and not ids:
+        return "(none)"
+    parts = strings + ([f"{ids} geometry ids (set in Onshape)"] if ids else [])
     return "; ".join(parts)
 
 
@@ -104,6 +106,8 @@ def _feature_names(p: dict, fl: FeatureList) -> str:
     ids = p.get("featureIds")
     if not isinstance(ids, list):
         return ""
+    if not ids:
+        return "(none)"
     names = {x.id: x.name for x in fl.features}
     return ", ".join(clean(names[i]) if isinstance(i, str) and i in names
                      else f"{clean(i, 64)} (not in the feature list)" for i in ids)

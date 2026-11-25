@@ -283,3 +283,34 @@ def test_cad_inspect_shows_feature_names(tmp_path):
     cad_read(ctx, ref)
     out = cad_inspect(ctx, ref, "Mirror")
     assert "instanceFunction: Boss" in out["feature"]
+
+
+# ---- review round 2 ---------------------------------------------------------------------------
+
+def test_omitted_selection_that_the_feature_shows_is_flagged():
+    p = prepare(SPECS, "extrude", {"depth": "10 mm"}, FL, mode="add")
+    warn = [f for f in p.findings if f.code == "EMPTY_SELECTION"]
+    assert len(warn) == 1 and warn[0].level == "warn" and "entities" in warn[0].message
+
+
+def test_empty_selection_not_flagged_when_its_condition_is_off_or_it_was_given():
+    p = prepare(SPECS, "linearPattern", {"entities": {"entity": "body", "created_by": "Block"},
+                                         "directionOne": CAP}, FL, mode="add")
+    msg = " ".join(f.message for f in p.findings if f.code == "EMPTY_SELECTION")
+    assert "directionTwo" not in msg  # only when hasSecondDir == true; default false
+    assert "entities" not in msg and "directionOne" not in msg  # given
+
+
+def test_empty_selection_renders_as_none():
+    assert param_value({"btType": "BTMParameterQueryList-148", "queries": []}) == "(none)"
+    assert param_value({"btType": "BTMParameterFeatureList-1749", "featureIds": []}, FL) == "(none)"
+
+
+def test_parameter_without_any_default_is_reported():
+    from onshape_duet.generic.specs import FeatureSpec, ParamSpec
+    spec = FeatureSpec("t", "T", (ParamSpec("n", "N", "quantity", quantity_type="REAL"),
+                                  ParamSpec("w", "W", "unsupported")))
+    p = prepare({"t": spec}, "t", {}, FL, mode="add")
+    notes = [f for f in p.findings if f.code == "DEFAULT_NOT_SENT"]
+    assert {m for f in notes for m in ("n", "w") if f.message.startswith(m + " ")} == {"n", "w"}
+    assert p.parameters == []

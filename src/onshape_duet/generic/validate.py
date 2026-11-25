@@ -106,9 +106,30 @@ def prepare(spec_by_type: dict[str, FeatureSpec], feature_type: str, params: dic
             if d is not None:
                 prep.parameters.append(d)
                 prep.defaults_applied[clean(p.id, 60)] = shown_default(p)
-            elif p.default is not None:
+            else:
+                why = (f"has a spec default ({clean(p.default, 60)}) that could not be built"
+                       if p.default is not None else "has no spec default this server can send")
                 prep.findings.append(Finding(
                     "warn", "DEFAULT_NOT_SENT",
-                    f"{clean(p.id)} has a spec default ({clean(p.default, 60)}) that could not be "
-                    "built, so it is not sent; Onshape does not fill it in, so set it explicitly"))
+                    f"{clean(p.id)} {why}, so it is not sent; Onshape does not fill it in, so "
+                    "set it explicitly if the feature needs it"))
+        empty = [p.id for p in spec.params
+                 if p.id not in params and p.kind in ("query", "feature_list")
+                 and _may_be_shown(p, params, prep.defaults_applied)]
+        if empty:
+            prep.findings.append(Finding(
+                "warn", "EMPTY_SELECTION",
+                f"sent with nothing selected: {', '.join(clean(e) for e in empty)}; name the ones "
+                "this feature needs, or it may fail to regenerate"))
     return prep
+
+
+def _may_be_shown(p, params: dict, defaults: dict) -> bool:
+    """True unless p's simple `X == V` condition is known to be off (complex ones: unknown)."""
+    if not p.conditional:
+        return True
+    head, sep, want = p.condition.partition(" == ")
+    if not sep:
+        return True
+    value = params[head] if head in params else defaults.get(head)
+    return value is None or str(value).lower() == want.lower()

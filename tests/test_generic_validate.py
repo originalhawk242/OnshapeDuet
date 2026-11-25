@@ -44,7 +44,7 @@ def test_custom_and_unknown_type():
 def test_defaults_applied_lists_every_default_sent():
     # Onshape does not fill omitted parameters (live G3): conditional ones are sent too
     p = prepare(SPECS, "extrude", {"endBound": "BLIND"}, FL, mode="add")
-    assert not p.findings
+    assert [f.code for f in p.findings] == ["EMPTY_SELECTION"]  # entities: nothing picked
     assert p.defaults_applied["depth"] == "25 mm" and p.defaults_applied["oppositeDirection"] is False
     assert {q["parameterId"] for q in p.parameters} == {"endBound", *p.defaults_applied}
     assert "endBound" not in p.defaults_applied and p.defaults_applied["entities"] == []  # sent empty
