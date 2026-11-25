@@ -3,6 +3,7 @@ native feature type takes. Field names come from Onshape's OpenAPI schema and ar
 not yet verified against a live response."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from ..model import flatten_params
@@ -72,9 +73,14 @@ _SHORT_UNIT = {"millimeter": "mm", "degree": "deg"}
 
 
 def _num(v: object) -> str | None:
-    if isinstance(v, bool) or not isinstance(v, (int, float)):
+    """A number as the shortest text that reads back as the same value ('5', '0.1',
+    '1.789911'), or None for a non-number or a non-finite value."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
         return None
-    return f"{v:g}"
+    if isinstance(v, int):
+        return str(v)
+    s = repr(v)
+    return s[:-2] if s.endswith(".0") else s
 
 
 def _range_default(ranges: list, quantity_type: str) -> str | None:

@@ -168,3 +168,21 @@ def test_real_capture_defaults_if_present():
     for s in specs.values():
         for p in s.params:
             assert p.default is None or isinstance(p.default, (str, bool, int, float))
+
+
+def test_range_default_keeps_full_precision():
+    # A '%g' rendering cut 1.789911 deg (hole tappedAngle) to 1.78991 deg (6 significant digits).
+    qty = {"btType": "BTMParameterQuantity-147", "parameterId": "a", "units": "degree",
+           "value": 1.789911, "expression": "", "isInteger": False}
+    spec = {"featureSpecs": [{"featureType": "t", "featureTypeName": "T", "namespace": "", "parameters": [
+        _live_param("BTParameterSpecQuantity-173", "a", "ANGLE", qty,
+                    [{"defaultValue": 1.789911, "units": "degree"}]),
+        _live_param("BTParameterSpecQuantity-173", "b", "LENGTH", dict(qty, parameterId="b", units="meter"),
+                    [{"defaultValue": 0.1, "units": "meter"}, {"defaultValue": 0.1, "units": "millimeter"}]),
+        _live_param("BTParameterSpecQuantity-173", "c", "LENGTH", dict(qty, parameterId="c", units="meter"),
+                    [{"defaultValue": float("inf"), "units": "millimeter"}]),
+    ]}]}
+    (s,) = parse_feature_specs(spec)
+    assert s.param("a").default == "1.789911 deg"
+    assert s.param("b").default == "0.1 mm"  # the millimeter range's own default, not 0.1 m
+    assert s.param("c").default is None  # a non-finite default is not sent

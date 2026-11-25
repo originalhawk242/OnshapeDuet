@@ -65,29 +65,49 @@ def _load_gen():
     return mod
 
 
-def _q(pid, value, units, expression=""):
-    return {"parameterId": pid, "defaultValue": {"btType": "BTMParameterQuantity-147",
-            "value": value, "units": units, "expression": expression, "isInteger": False}}
+def _hole_spec_params():
+    from onshape_duet.generic.specs import parse_feature_specs
+    gen = _load_gen()
+    (fs,) = parse_feature_specs({"featureSpecs": [gen.load_hole_spec()]})
+    return gen, fs.params
 
 
-def test_gen_hole_defaults_one_entry_per_default_and_units():
+def test_gen_hole_defaults_one_entry_per_default():
     gen = _load_gen()
     spec = gen.load_hole_spec()
     out, skipped = gen.convert(spec)
     with_default = [p["parameterId"] for p in spec["parameters"] if p.get("defaultValue")]
     assert [d["parameterId"] for d in out] == with_default
     assert skipped == len(spec["parameters"]) - len(with_default)
-    assert gen.convert_param(_q("a", 0.012, "meter"))["expression"] == "12 mm"
-    assert gen.convert_param(_q("b", 118.0, "degree"))["expression"] == "118 deg"
-    assert gen.convert_param(_q("c", 3.0, ""))["expression"] == "3"
-    assert gen.convert_param(_q("d", 1, "meter", "7 mm"))["expression"] == "7 mm"
 
 
-def test_gen_hole_defaults_unknown_unit_raises():
+def test_hole_defaults_equal_generic_default_param():
+    """The typed hole and a generic add send the same default for every hole parameter
+    (review I1: the two used to disagree on 59 tolerance bounds, 100 mm against 0.1 mm)."""
+    from onshape_duet.features.hole_defaults import HOLE_DEFAULTS
+    from onshape_duet.generic.build import default_param
+    _, params = _hole_spec_params()
+    generic = [d for p in params if (d := default_param(p)) is not None]
+    assert len(generic) == len(HOLE_DEFAULTS) == 161
+    for typed, gen in zip(HOLE_DEFAULTS, generic):
+        assert typed == gen
+    by_id = {d["parameterId"]: d for d in HOLE_DEFAULTS}
+    # A per-unit range default (0.1 in every unit), not 0.1 m converted to millimeters.
+    assert by_id["holeDiameterV2ToleranceBoundSymmetrical"]["expression"] == "0.1 mm"
+    assert by_id["holeDiameterV2ToleranceBoundDeviationLower"]["expression"] == "-0.1 mm"
+    assert by_id["tappedAngle"]["expression"] == "1.789911 deg"  # full precision, not 1.78991
+    assert by_id["holeDiameterV3"]["expression"] == "5 mm"
+    assert by_id["isoHoleTableEx"]["value"] == {"size": "5", "holeType": "Drilled"}
+
+
+def test_gen_hole_defaults_refuses_a_default_it_cannot_build():
     import pytest
     gen = _load_gen()
-    with pytest.raises(ValueError, match="furlong"):
-        gen.convert_param(_q("a", 1.0, "furlong"))
+    bad = {"btType": "BTParameterSpecQuantity-173", "parameterId": "a", "quantityType": "LENGTH",
+           "defaultValue": {"btType": "BTMParameterQuantity-147", "parameterId": "a",
+                            "value": 1.0, "units": "meter", "expression": ""}, "ranges": []}
+    with pytest.raises(ValueError, match="a: "):
+        gen.convert({"featureType": "hole", "namespace": "", "parameters": [bad]})
 
 
 def test_committed_hole_defaults_match_fresh_generation():
