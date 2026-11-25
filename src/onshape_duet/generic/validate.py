@@ -8,7 +8,7 @@ from typing import Literal
 from ..lint import Finding
 from ..model import FeatureList
 from ..textsafe import clean
-from .build import ParamError, build_param, default_param
+from .build import ParamError, build_param, default_param, shown_default
 from .specs import FeatureSpec
 
 TYPED_TOOL_REQUIRED = {"newSketch": "cad_sketch", "assignVariable": "cad_variable"}
@@ -83,6 +83,13 @@ def prepare(spec_by_type: dict[str, FeatureSpec], feature_type: str, params: dic
             prep.findings.append(_refuse(e.code, clean(str(e), 300)))
             continue
         prep.parameters.append(built)
+        if mode == "add" and ps.kind == "array" and isinstance(value, list):
+            for i, item in enumerate(value):  # item parameters _item_params filled in
+                for sub in ps.items:
+                    if isinstance(item, dict) and sub.id not in item \
+                            and default_param(sub) is not None:
+                        prep.defaults_applied[f"{clean(pid, 60)}[{i}].{clean(sub.id, 60)}"] = \
+                            shown_default(sub)
         if mode == "update" and self_index is not None and ps.kind == "feature_list":
             for fid in built.get("featureIds", []):
                 if index_of.get(fid, -1) >= self_index:
@@ -93,8 +100,15 @@ def prepare(spec_by_type: dict[str, FeatureSpec], feature_type: str, params: dic
 
     if mode == "add":  # Onshape does not fill omitted parameters: send the spec defaults
         for p in spec.params:
-            if p.id not in params and (d := default_param(p)) is not None:
+            if p.id in params:
+                continue
+            d = default_param(p)
+            if d is not None:
                 prep.parameters.append(d)
-                prep.defaults_applied[p.id] = (dict(p.lookup_default) if p.lookup_default
-                                               else p.default)
+                prep.defaults_applied[clean(p.id, 60)] = shown_default(p)
+            elif p.default is not None:
+                prep.findings.append(Finding(
+                    "warn", "DEFAULT_NOT_SENT",
+                    f"{clean(p.id)} has a spec default ({clean(p.default, 60)}) that could not be "
+                    "built, so it is not sent; Onshape does not fill it in, so set it explicitly"))
     return prep

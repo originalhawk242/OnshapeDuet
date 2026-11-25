@@ -41,12 +41,13 @@ def test_add_sends_every_omitted_scalar_default():
     assert p.defaults_applied["cplaneType"] == "OFFSET"
 
 
-def test_add_never_invents_queries_or_feature_lists():
+def test_add_never_invents_selections_or_feature_references():
     p = prepare(SPECS, "linearPattern", {"entities": {"entity": "body", "created_by": "Block"},
                                          "directionOne": CAP}, FL, mode="add")
     sent = by_id(p.parameters)
-    for pid in ("faces", "directionTwo", "booleanScope", "instanceFunction", "skippedInstances"):
-        assert pid not in sent and pid not in p.defaults_applied
+    for pid in ("faces", "directionTwo", "booleanScope"):
+        assert sent[pid]["queries"] == []  # sent, but empty: nothing is picked for the caller
+    assert sent["instanceFunction"]["featureIds"] == [] and sent["skippedInstances"]["items"] == []
 
 
 def test_full_array_item_carries_every_item_parameter():
@@ -144,3 +145,141 @@ def test_every_sent_default_matches_onshapes_featurespec():
         sent = [q for q in p.parameters if not q["btType"].startswith("BTMParameterLookupTablePath")]
         assert sent, t
         assert_matches_spec(feature(t, "X", sent), t)
+
+
+# ---- review round 1 + peer notes -------------------------------------------------------------
+
+def test_omitted_queries_feature_lists_arrays_and_empty_strings_are_sent_empty():
+    # hole.fs preconditions need e.g. initEntities is Query and featureName is string
+    p = prepare(SPECS, "linearPattern", {"entities": {"entity": "body", "created_by": "Block"},
+                                         "directionOne": CAP}, FL, mode="add")
+    sent = by_id(p.parameters)
+    assert sent["faces"] == {"btType": "BTMParameterQueryList-148", "parameterId": "faces", "queries": []}
+    assert sent["instanceFunction"]["featureIds"] == [] and sent["skippedInstances"]["items"] == []
+    assert p.defaults_applied["faces"] == [] and p.defaults_applied["skippedInstances"] == []
+    h = by_id(prepare(SPECS, "hole", {}, FL, mode="add").parameters)
+    assert h["featureName"] == {"btType": "BTMParameterString-149", "parameterId": "featureName", "value": ""}
+    assert h["initEntities"]["queries"] == []
+
+
+def test_every_spec_parameter_is_sent_on_add():
+    for t, spec in SPECS.items():
+        if t in ("newSketch", "assignVariable"):
+            continue
+        sent = by_id(prepare(SPECS, t, {}, FL, mode="add").parameters)
+        assert set(sent) == {p.id for p in spec.params}, t
+
+
+def test_odd_onshape_strings_are_not_sent_and_shown_keys_are_cleaned():
+    from onshape_duet.generic.specs import parse_feature_specs as parse
+
+    def lookup(pid, val):
+        return {"btType": "BTParameterSpecLookupTablePath-761", "parameterId": pid,
+                "defaultValue": {"btType": "BTMParameterLookupTablePath-1419", "value": val}}
+    t = parse({"featureSpecs": [{"btType": "BTFeatureSpec-129", "featureType": "t", "featureTypeName": "T",
+                                  "parameters": [
+        lookup("evil", {"size": "5\u202e\x1b[31m"}), lookup("long", {"k": "x" * 500}),
+        {"btType": "BTParameterSpecBoolean-170", "parameterId": "b\x1b[31mad",
+         "defaultValue": {"btType": "BTMParameterBoolean-144", "value": True}}]}]})[0]
+    assert t.param("evil").lookup_default == () and t.param("long").lookup_default == ()
+    p = prepare({"t": t}, "t", {}, FL, mode="add")
+    assert all("\x1b" not in k for k in p.defaults_applied) and list(p.defaults_applied.values()) == [True]
+
+
+def test_hidden_param_warns_when_the_controller_comes_from_a_default():
+    from onshape_duet.generic.lint import lint_generic
+    params = {"entities": CAP, "angle": "30 deg"}
+    p = prepare(SPECS, "cPlane", params, FL, mode="add")
+    f = lint_generic("cPlane", "Tilt", params, SPECS["cPlane"], FL, mode="add",
+                     defaults=p.defaults_applied)
+    hidden = [x for x in f if x.code == "HIDDEN_PARAM"]
+    assert len(hidden) == 1 and "angle" in hidden[0].message and "default" in hidden[0].message
+    assert "cplaneType" in hidden[0].message
+
+
+def test_refused_parameter_gets_no_default_substituted():
+    p = prepare(SPECS, "cPlane", {"entities": CAP, "cplaneType": "offset"}, FL, mode="add")
+    assert "BAD_VALUE" in {x.code for x in p.findings}
+    assert "cplaneType" not in by_id(p.parameters) and "cplaneType" not in p.defaults_applied
+
+
+def test_unbuildable_default_is_reported():
+    from onshape_duet.generic.specs import FeatureSpec, ParamSpec
+    spec = FeatureSpec("t", "T", (ParamSpec("mode", "Mode", "enum", default="GONE", options=("A",),
+                                            enum_name="M"),))
+    p = prepare({"t": spec}, "t", {}, FL, mode="add")
+    assert [(x.level, x.code) for x in p.findings] == [("warn", "DEFAULT_NOT_SENT")]
+    assert p.parameters == [] and p.defaults_applied == {}
+
+
+def test_item_defaults_are_listed():
+    p = prepare(SPECS, "linearPattern",
+                {"entities": {"entity": "body", "created_by": "Block"}, "directionOne": CAP,
+                 "skippedInstances": [{"index1": 1}, {"index2": 1}]}, FL, mode="add")
+    assert p.defaults_applied["skippedInstances[0].index2"] == "0"
+    assert p.defaults_applied["skippedInstances[1].index1"] == "1"
+    assert "skippedInstances" not in p.defaults_applied
+
+
+def test_feature_list_names_inside_arrays_and_compressed_collapsed():
+    f = Feature("F9", "x", "X", "OK", raw={"parameters": [
+        {"btType": "BTMParameterArray-2025", "parameterId": "arr", "items": [
+            {"btType": "BTMArrayParameterItem-1843", "parameters": [
+                {"btType": "BTMParameterFeatureList-1749", "parameterId": "feats", "featureIds": ["F1"]}]}]},
+        {"btType": "BTMParameterQueryList-148", "parameterId": "q", "queries": [
+            {"queryString": 'query=qCompressed(1.0,"a");'}, {"queryString": 'query=qCompressed(1.0,"b");'},
+            {"queryString": "query=qEverything(EntityType.FACE);"}]}]})
+    out = render_feature(f, None, FL)
+    assert "[0] feats=Block" in out
+    assert "q: query=qEverything(EntityType.FACE);; 2 selections compressed by Onshape" in out
+
+
+def _tool_ctx(tmp_path):
+    from onshape_duet.backends.fake import FakeBackend
+    from onshape_duet.budget import Ledger
+    from onshape_duet.cache import DocCache
+    from onshape_duet.config import Config
+    from onshape_duet.tools import Context
+    cfg = Config(budget=50, ledger_path=tmp_path / "l.json")
+    ledger = Ledger(cfg.ledger_path, 50)
+    backend = FakeBackend(ledger)
+    backend.specs_json = {"featureSpecs": LIVE}
+    return Context(backend, DocCache(backend), ledger, cfg), backend
+
+
+def test_apply_posts_exactly_what_the_dry_run_listed(tmp_path):
+    from onshape_duet.docref import DocRef
+    from onshape_duet.feature_tools import cad_extrude
+    from onshape_duet.tools import cad_feature_add, cad_read, cad_sketch
+    ref = DocRef("a" * 24, "b" * 24, "c" * 24)
+    ctx, fake = _tool_ctx(tmp_path)
+    cad_read(ctx, ref)
+    sk = {"plane": "Top", "entities": [{"id": "r", "type": "rectangle", "corner1": [0, 0], "corner2": [60, 40]}],
+          "constraints": [{"type": "ground", "refs": ["r.bottom.start"]}],
+          "dimensions": [{"type": "length", "ref": "r.bottom", "value": 60},
+                         {"type": "length", "ref": "r.left", "value": 40}]}
+    assert cad_sketch(ctx, ref, "Base", sk, apply=True)["applied"]
+    assert cad_extrude(ctx, ref, "Block", "Base", "10 mm", apply=True)["applied"]
+    params = {"entities": CAP, "offset": "5 mm"}
+    dry = cad_feature_add(ctx, ref, "cPlane", "OffPlane", params)
+    out = cad_feature_add(ctx, ref, "cPlane", "OffPlane", params, apply=True)
+    assert out["applied"] is True
+    posted = {p["parameterId"] for p in fake.last_feature_json["parameters"]}
+    assert posted == set(params) | set(dry["defaults_applied"])
+    assert dry["defaults_applied"]["cplaneType"] == "OFFSET"
+
+
+def test_cad_inspect_shows_feature_names(tmp_path):
+    from onshape_duet.docref import DocRef
+    from onshape_duet.tools import cad_inspect, cad_read
+    ref = DocRef("a" * 24, "b" * 24, "c" * 24)
+    ctx, fake = _tool_ctx(tmp_path)
+    fake.add_feature(ref, {"btType": "BTMFeature-134", "featureType": "extrude", "name": "Boss",
+                           "parameters": []}, fake.get_microversion(ref))
+    fake.add_feature(ref, {"btType": "BTMFeature-134", "featureType": "mirror", "name": "Mirror",
+                           "parameters": [{"btType": "BTMParameterFeatureList-1749",
+                                           "parameterId": "instanceFunction", "featureIds": ["F1"]}]},
+                     fake.get_microversion(ref))
+    cad_read(ctx, ref)
+    out = cad_inspect(ctx, ref, "Mirror")
+    assert "instanceFunction: Boss" in out["feature"]

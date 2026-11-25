@@ -46,19 +46,26 @@ def _query_text(qs: str) -> str:
 
 def _query(p: dict) -> str:
     queries = [q for q in p.get("queries") or [] if isinstance(q, dict)]
-    strings = [_query_text(q["queryString"]) for q in queries
-               if isinstance(q.get("queryString"), str) and q["queryString"].strip()]
+    texts = [_query_text(q["queryString"]) for q in queries
+             if isinstance(q.get("queryString"), str) and q["queryString"].strip()]
+    strings = [t for t in texts if t != _COMPRESSED]
+    packed = len(texts) - len(strings)
+    if packed == 1:
+        strings.append(_COMPRESSED)
+    elif packed:
+        strings.append(f"{packed} selections compressed by Onshape (not readable here; "
+                       "change them in Onshape)")
     ids = sum(len(q["deterministicIds"]) for q in queries
               if not q.get("queryString") and isinstance(q.get("deterministicIds"), list))
     parts = strings + ([f"{ids} geometry ids (set in Onshape)"] if ids or not strings else [])
     return "; ".join(parts)
 
 
-def _array(p: dict) -> str:
+def _array(p: dict, fl: FeatureList | None) -> str:
     out = []
     for i, item in enumerate(p.get("items") or []):
         subs = item.get("parameters") if isinstance(item, dict) else None
-        body = ", ".join(f"{clean(s.get('parameterId', '?'), 60)}={_flat(param_value(s))}"
+        body = ", ".join(f"{clean(s.get('parameterId', '?'), 60)}={_flat(param_value(s, fl))}"
                          for s in subs or [] if isinstance(s, dict))
         out.append(f"  [{i}] {body}")
     return "\n".join(out)
@@ -68,8 +75,9 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
-def param_value(p: dict) -> str:
-    """One raw BTM parameter as readable text (arrays: one `  [i] ...` line per item)."""
+def param_value(p: dict, fl: FeatureList | None = None) -> str:
+    """One raw BTM parameter as readable text (arrays: one `  [i] ...` line per item).
+    `fl`, when given, turns feature-list ids into feature names."""
     if not isinstance(p, dict):
         return "<?>"
     bt = p.get("btType")
@@ -83,10 +91,12 @@ def param_value(p: dict) -> str:
     if bt.startswith("BTMParameterQuery"):
         return _query(p)
     if bt.startswith("BTMParameterFeatureList"):
+        if fl is not None:
+            return _feature_names(p, fl)
         ids = p.get("featureIds")
         return ", ".join(clean(i, 64) for i in ids) if isinstance(ids, list) else ""
     if bt.startswith("BTMParameterArray"):
-        return _array(p)
+        return _array(p, fl)
     return f"<{clean(bt or '?', 60)}>"
 
 
@@ -110,10 +120,7 @@ def render_feature(f: Feature, spec: FeatureSpec | None, fl: FeatureList | None 
         ps = spec.param(p["parameterId"]) if spec and isinstance(p.get("parameterId"), str) else None
         label = f"{pid} ({clean(ps.name, 60)})" if ps and ps.name else pid
         bt = p.get("btType") if isinstance(p.get("btType"), str) else ""
-        if fl is not None and bt.startswith("BTMParameterFeatureList"):
-            value = _feature_names(p, fl)
-        else:
-            value = param_value(p)
+        value = param_value(p, fl)
         is_array = bt.startswith("BTMParameterArray")
         if is_array and not value.strip():
             lines.append(f"  {label}: (no items)")

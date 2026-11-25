@@ -200,8 +200,9 @@ Facts learned:
 - Onshape does not apply spec defaults for parameters missing from a feature write. Depending on the feature it
   regenerates with ERROR (cPlane without `cplaneType`) or rejects the write with HTTP 400 (array item missing a
   parameter); a missing lookup table fails a FeatureScript precondition (hole `isoHoleTableEx`, found by the
-  typed-features session). Fix: a generic add sends every omitted parameter that has a spec default (scalars and lookup
-  tables, conditional ones too) and fills omitted item parameters of a full array item. `defaults_applied` lists them.
+  typed-features session). Fix: a generic add sends every omitted parameter: scalars and lookup tables at the spec default
+  (conditional ones too), selections, feature lists and arrays empty; a full array item gets its omitted item
+  parameters. `defaults_applied` lists them all.
 - After an update, Onshape rewrites the feature's selections, ours included, as `query=qCompressed(1.0,"...")` (opaque).
   Sending them back in later updates works (OffPlane was updated twice). `cad_inspect` now shows
   `selection compressed by Onshape` instead of the blob.

@@ -109,15 +109,18 @@ def _default(d: dict, ranges: list, kind: str, quantity_type: str) -> object:
 
 
 _LOOKUP = "BTParameterSpecLookupTablePath-761"
+_MAX_LOOKUP = 200
 
 
 def _lookup_default(d: dict) -> tuple[tuple[str, str], ...]:
-    """A lookup table's default value as (key, value) pairs, only if all are plain strings."""
+    """A lookup table's default value as (key, value) pairs, only if all are plain printable
+    strings of at most _MAX_LOOKUP characters."""
     dv = d.get("defaultValue")
     val = dv.get("value") if isinstance(dv, dict) else None
     if not isinstance(val, dict) or not val or not all(
-            isinstance(k, str) and isinstance(v, str) for k, v in val.items()):
-        return ()
+            isinstance(x, str) and len(x) <= _MAX_LOOKUP and x.isprintable()
+            for kv in val.items() for x in kv):
+        return ()  # only plain, printable strings go back to Onshape
     return tuple(val.items())
 
 

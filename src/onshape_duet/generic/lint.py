@@ -39,7 +39,10 @@ def _quantities(specs: dict[str, ParamSpec], params: dict) -> Iterator[tuple[str
 
 
 def lint_generic(feature_type: str, name: str | None, params: dict, spec: FeatureSpec,
-                 fl: FeatureList, *, mode: Literal["add", "update"]) -> list[Finding]:
+                 fl: FeatureList, *, mode: Literal["add", "update"],
+                 defaults: dict | None = None) -> list[Finding]:
+    """`defaults`: the add's defaults_applied, so a controlling parameter that will be sent
+    at its default still counts for HIDDEN_PARAM."""
     from .validate import TYPED_TOOL_AVAILABLE  # late: validate imports nothing from here
     out: list[Finding] = []
     if mode == "add" and isinstance(name, str) \
@@ -80,14 +83,18 @@ def lint_generic(feature_type: str, name: str | None, params: dict, spec: Featur
         if ps is None or not ps.conditional:
             continue
         m = re.fullmatch(r"(\S+) == (.*)", ps.condition)
-        if not m or m.group(1) not in params:
+        ctrl = m.group(1) if m else None
+        from_default = ctrl is not None and ctrl not in params and ctrl in (defaults or {})
+        if ctrl is None or (ctrl not in params and not from_default):
             continue
-        actual = params[m.group(1)]
+        actual = params[ctrl] if ctrl in params else (defaults or {})[ctrl]
         if str(actual).lower() != m.group(2).lower():
+            how = (f"{clean(ctrl)} is sent at its default {clean(actual)} because this call "
+                   f"does not set it; set {clean(ctrl)} for {clean(pid)} to apply"
+                   if from_default else f"this call sets {clean(ctrl)} to {clean(actual)}")
             out.append(Finding("warn", "HIDDEN_PARAM",
-                               f"{clean(pid)} is only shown when {clean(ps.condition)}, but this "
-                               f"call sets {clean(m.group(1))} to {clean(actual)}; it may have no "
-                               "effect (condition not evaluated exactly)"))
+                               f"{clean(pid)} is only shown when {clean(ps.condition)}, but {how}; "
+                               "it may have no effect (condition not evaluated exactly)"))
 
     tool = TYPED_TOOL_AVAILABLE.get(feature_type)
     if mode == "add" and tool:

@@ -313,7 +313,8 @@ def cad_feature_add(ctx: Context, ref: DocRef, feature_type: str, name: str, par
     findings = list(prepared.findings)
     spec = spec_by_type.get(feature_type) if isinstance(feature_type, str) else None
     if spec is not None:  # no native spec: prepare's refusal is the whole story
-        findings += lint_generic(feature_type, name, params, spec, fl, mode="add")
+        findings += lint_generic(feature_type, name, params, spec, fl, mode="add",
+                                 defaults=prepared.defaults_applied)
     extra = {"feature_type": clean(feature_type, 60), "name": name, "params": prepared.readable,
              "defaults_applied": prepared.defaults_applied,
              "findings": [f.to_dict() for f in findings],

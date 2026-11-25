@@ -96,18 +96,36 @@ _SCALAR_KINDS = ("quantity", "enum", "boolean", "string")
 
 
 def default_param(spec: ParamSpec) -> dict | None:
-    """The spec's own default as a BTM parameter (a scalar, or a lookup table's default
-    path), or None. Onshape does not fill omitted parameters (live G3), so a new feature or array
-    item sends these explicitly. Queries, feature lists and arrays are never invented."""
+    """The spec's own default as a BTM parameter, or None if it cannot be built. Onshape does
+    not fill omitted parameters (live G3), so a new feature or array item sends these
+    explicitly: scalars and lookup tables at the spec default; selections, feature lists and
+    arrays empty (nothing is picked for the caller)."""
     if spec.lookup_default:
         return {"btType": "BTMParameterLookupTablePath-1419", "parameterId": spec.id,
                 "namespace": "", "value": dict(spec.lookup_default)}
+    if spec.kind == "query":  # an empty selection, as a new feature in Onshape starts
+        return {"btType": "BTMParameterQueryList-148", "parameterId": spec.id, "queries": []}
+    if spec.kind == "feature_list":
+        return {"btType": "BTMParameterFeatureList-1749", "parameterId": spec.id, "featureIds": []}
+    if spec.kind == "array":
+        return {"btType": "BTMParameterArray-2025", "parameterId": spec.id, "items": []}
+    if spec.kind == "string" and spec.default == "":  # e.g. hole featureName
+        return {"btType": "BTMParameterString-149", "parameterId": spec.id, "value": ""}
     if spec.kind not in _SCALAR_KINDS or spec.default is None:
         return None
     try:
         return build_param(spec, spec.default, FeatureList("", []))
     except ParamError:
         return None
+
+
+def shown_default(spec: ParamSpec) -> object:
+    """What `defaults_applied` shows for a default sent by `default_param` (cleaned)."""
+    if spec.lookup_default:
+        return {clean(k, 60): clean(v, MAX_STR) for k, v in spec.lookup_default}
+    if spec.kind in ("query", "feature_list", "array"):
+        return []
+    return clean(spec.default, MAX_STR) if isinstance(spec.default, str) else spec.default
 
 
 def _item_params(spec: ParamSpec, item: object, fl: FeatureList,

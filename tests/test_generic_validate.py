@@ -47,7 +47,7 @@ def test_defaults_applied_lists_every_default_sent():
     assert not p.findings
     assert p.defaults_applied["depth"] == "25 mm" and p.defaults_applied["oppositeDirection"] is False
     assert {q["parameterId"] for q in p.parameters} == {"endBound", *p.defaults_applied}
-    assert "endBound" not in p.defaults_applied and "entities" not in p.defaults_applied
+    assert "endBound" not in p.defaults_applied and p.defaults_applied["entities"] == []  # sent empty
     u = prepare(SPECS, "extrude", {"endBound": "BLIND"}, FL, mode="update", current_raw={})
     assert u.defaults_applied == {}
 
