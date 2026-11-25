@@ -18,6 +18,9 @@ from .tools import (_FAILURES, _NO_READ, _apply_feature, _ledger_numbers, _locke
                     _reply, _spent, _start, Context)
 
 _MAX_NAME = 100
+_FIND_DRIFT = ("the document changed since the last read (cad_read); the count and centroids "
+               "reflect the current version, not the one the query was compiled from. "
+               "Re-read with cad_read before relying on them")
 
 
 def _out(ctx: Context, start, **fields) -> dict:
@@ -41,11 +44,17 @@ def cad_find(ctx: Context, ref: DocRef, selector, evaluate: bool = False) -> dic
     fields = {"query": query, "entity": entity, "based_on_version": clean(based, 64)}
     if evaluate:
         try:
-            count, centroids = parse_find_result(
-                ctx.backend.eval_featurescript(ref, find_script(query)))
+            result, evaluated = ctx.backend.eval_featurescript_versioned(ref, find_script(query))
+            count, centroids = parse_find_result(result)
         except (*_FAILURES, PostWriteError) as e:
             return _out(ctx, start, error=clean(e, 300), **fields)
         fields.update(count=count, centroids_mm=centroids)
+        if evaluated is not None:
+            # The query is compiled from the snapshot, but Onshape evaluates the live
+            # workspace: say so when the two differ.
+            fields["evaluated_version"] = clean(evaluated, 64)
+            if evaluated != based:
+                fields["note"] = _FIND_DRIFT
     return _out(ctx, start, **fields)
 
 

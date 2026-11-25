@@ -513,3 +513,17 @@ def test_eval_featurescript_posts_script_unpinned(tmp_path):
     assert seen[0].method == "POST" and seen[0].url.path.endswith("/e/" + "c" * 24 + "/featurescript")
     body = json.loads(seen[0].content)
     assert body == {"script": "function(){}", "queries": {}} and "sourceMicroversion" not in body
+
+
+@pytest.mark.parametrize("reply_mv,expected", [("mv7", "mv7"), (None, None), (5, None), ("", None)])
+def test_eval_featurescript_versioned_returns_source_microversion(tmp_path, reply_mv, expected):
+    result = {"btType": "x.BTFSValueArray", "value": []}
+
+    def handler(req):
+        body = {"result": result}
+        if reply_mv is not None:
+            body["sourceMicroversion"] = reply_mv
+        return httpx.Response(200, json=body)
+    b, ledger = make(tmp_path, handler)
+    assert b.eval_featurescript_versioned(REF, "function(){}") == (result, expected)
+    assert ledger.used == 1

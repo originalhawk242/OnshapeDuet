@@ -63,7 +63,7 @@ def test_find_eval_failure_is_error_dict(env):
 
     def boom(ref, script):
         raise RuntimeError("Onshape API error 400: bad")
-    backend.eval_featurescript = boom
+    backend.eval_featurescript_versioned = boom
     out = cad_find(ctx, REF, SEL, evaluate=True)
     assert "400" in out["error"] and "budget_left" in out
 
@@ -86,3 +86,33 @@ def test_find_script_shape():
     assert EXPR in s and "evApproximateCentroid" in s and "millimeter" in s and "5" in s
     assert s.startswith("function(context is Context, queries is map)")
     assert "FeatureScript " not in s and "import(" not in s and "export" not in s
+
+
+# --- final review M12: the evaluated version is reported, and a drift is flagged ---
+
+def test_find_evaluate_reports_evaluated_version_no_note_when_unchanged(env):
+    ctx, backend, _ = env
+    cad_read(ctx, REF)
+    out = cad_find(ctx, REF, SEL, evaluate=True)
+    assert out["evaluated_version"] == out["based_on_version"] == ctx.last_read[REF]
+    assert "note" not in out
+
+
+def test_find_evaluate_notes_document_changed_since_read(env):
+    ctx, backend, _ = env
+    backend.find_results[EXPR] = (2, ["(0, 0, 0)", "(1, 0, 0)"])
+    cad_read(ctx, REF)
+    backend.simulate_human_edit(REF)
+    out = cad_find(ctx, REF, SEL, evaluate=True)
+    assert out["based_on_version"] == "mv0" and out["evaluated_version"] == "mv1"
+    assert "changed since" in out["note"] and "current version" in out["note"]
+    assert out["count"] == 2 and out["requests"] == 1
+
+
+def test_find_evaluate_without_reply_version_has_no_note(env):
+    ctx, backend, _ = env
+    cad_read(ctx, REF)
+    real = backend.eval_featurescript_versioned
+    backend.eval_featurescript_versioned = lambda ref, script: (real(ref, script)[0], None)
+    out = cad_find(ctx, REF, SEL, evaluate=True)
+    assert "evaluated_version" not in out and "note" not in out and out["count"] == 0

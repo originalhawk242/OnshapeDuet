@@ -97,7 +97,7 @@ The selection is compiled to an Onshape query stored in the feature (`queryStrin
 
 **Sketch planes:** `cad_sketch` spec `plane` is `"Front"`, `"Top"`, `"Right"`, `{"plane": "<cPlane feature name>"}`, or a face selector with geometry `plane` or a cap.
 
-**Costs:** a dry run is 0 requests when the last-read version is cached, else at most 2. `cad_find` is 0 requests if the document was read; `evaluate=True` adds 1 and returns the match count and centroids in mm. Apply is 2 requests (version check + write), or 3 when the write reply names no new version.
+**Costs:** a dry run is 0 requests when the last-read version is cached, else at most 2. `cad_find` is 0 requests if the document was read; `evaluate=True` adds 1 and returns the match count and centroids in mm. Onshape evaluates the current document: the reply's `evaluated_version` is the version it ran on, and a `note` says when that differs from `based_on_version` (someone edited since your last read; re-read). Apply is 2 requests (version check + write), or 3 when the write reply names no new version.
 
 **Unverified live:** the `cad_shell` outward direction and the `cad_hole` settings have not been confirmed against live Onshape. A wrong mapping still regenerates OK, so their replies carry `summary.note`; after applying, check the result in Onshape with the owner.
 

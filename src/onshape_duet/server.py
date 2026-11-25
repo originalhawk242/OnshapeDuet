@@ -87,7 +87,8 @@ def build_server(ctx: Context) -> MCPServer:
         tool takes for edges/faces/bodies. Dry (default): returns the compiled query;
         costs 0 requests if the document was read with cad_read. evaluate=True runs one
         read-only evaluation (+1 request) and returns the match count and centroids in
-        mm. Never returns transient ids; nothing is written."""
+        mm, evaluated on the current document (evaluated_version; a note says so when it
+        differs from based_on_version). Never returns transient ids; nothing is written."""
         try:
             ref = parse_url(url, ctx.config.base_url)
         except ValueError as e:

@@ -105,12 +105,16 @@ class FakeBackend:
         return FeatureList(self._mv(d), copy.deepcopy(d.features))
 
     def eval_featurescript(self, ref: DocRef, script: str) -> dict:
+        return self.eval_featurescript_versioned(ref, script)[0]
+
+    def eval_featurescript_versioned(self, ref: DocRef, script: str) -> tuple[dict, str | None]:
+        """Evaluates against the document's current version, like Onshape."""
         self._enter("eval_featurescript")
         count, cents = next((v for k, v in self.find_results.items() if k in script), (0, []))
         pre = "com.belmonttech.serialize.fsvalue."
-        return {"btType": pre + "BTFSValueArray", "typeTag": "",
-                "value": [{"btType": pre + "BTFSValueString", "typeTag": "", "value": v}
-                          for v in [str(count), *cents]]}
+        return ({"btType": pre + "BTFSValueArray", "typeTag": "",
+                 "value": [{"btType": pre + "BTFSValueString", "typeTag": "", "value": v}
+                           for v in [str(count), *cents]]}, self._mv(self._doc(ref)))
 
     def get_variables(self, ref: DocRef) -> list[Variable]:
         self._enter("get_variables")

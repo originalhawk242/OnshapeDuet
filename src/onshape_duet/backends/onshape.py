@@ -246,13 +246,18 @@ class OnshapeBackend:
         return FeatureList(mv, [_parse_feature(f, states) for f in feats])
 
     def eval_featurescript(self, ref: DocRef, script: str) -> dict:
-        # Verified live: `queries` must be an object (a list gives HTTP 400).
+        return self.eval_featurescript_versioned(ref, script)[0]
+
+    def eval_featurescript_versioned(self, ref: DocRef, script: str) -> tuple[dict, str | None]:
+        # Verified live: `queries` must be an object (a list gives HTTP 400). The reply
+        # carries the evaluated version as `sourceMicroversion` (tests/fixtures/probes.json).
         data = self._ok(self._request("POST", featurescript_path(ref),
                                       body={"script": script, "queries": {}}))
         result = data.get("result")
         if not isinstance(result, dict):
             raise RuntimeError("unexpected Onshape response: missing result")
-        return result
+        mv = data.get("sourceMicroversion")
+        return result, (mv if isinstance(mv, str) and mv else None)
 
     def get_variables(self, ref: DocRef) -> list[Variable]:
         return variables_from_features(self.list_features(ref))

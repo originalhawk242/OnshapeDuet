@@ -63,3 +63,8 @@ class Backend(Protocol):
         """Run a read-only FeatureScript evaluation and return the reply's `result`
         value. Not a write: no version pin, no cache change. Costs one request."""
         ...
+
+    def eval_featurescript_versioned(self, ref: DocRef, script: str) -> tuple[dict, str | None]:
+        """As eval_featurescript, plus the version the evaluation ran against (the
+        reply's `sourceMicroversion`; None when the reply names none). One request."""
+        ...
