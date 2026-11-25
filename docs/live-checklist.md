@@ -209,7 +209,8 @@ Facts learned:
 - A spec fetch is per process, so a fresh process pays 1 request on its first generic call.
 
 Open generic items:
-- [ ] G3b: re-run G3 live with the defaults fix (expect status OK with only `entities` and `offset` given; ~3 requests).
+- [x] G3b: re-run G3 live with the defaults fix (2026-11-24, 6 requests, ledger 186 -> 192): `cPlane OffPlane2` given only
+  `entities` and `offset` regenerates **OK**; the 7 defaults the dry run listed are what `cad_inspect` reads back.
 - [ ] G6 `N geometry ids (set in Onshape)`: no human-picked (id-only) selection was available; still offline-only.
 - [ ] G7 refusal of a list over human-picked array items (`RAW_GEOMETRY_ID`): no such feature live; unit-tested only.
 - [ ] `EMPTY_SELECTION` / `HIDDEN_PARAM` evaluate only simple `X == V` conditions; most live conditions are
