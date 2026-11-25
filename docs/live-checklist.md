@@ -220,14 +220,44 @@ Captured from the foundation test document with `scripts/capture_features.py` (6
   Still to verify (Task 14, needs budget): that after an upstream edit (e.g. a variable change), the selection follows the query rather than the stored ids. The reply is under `extrude_querystring` in `tests/fixtures/probes.json`.
   `ProbeExtrude` is left in the foundation test document. Delete it in the UI, or leave it for Task 14 to build on.
 
+### Typed features: live run (Task 14b, 2026-11-24)
+
+Run with the tool functions directly (not over MCP) on head 678ea49 in a new Part Studio `TypedLive`
+(element `a64ea7ef640d79b80c37151b`) of the foundation test document. Each step: dry run, then apply.
+The ledger went from 74 to 127, plus 4 diagnostic evaluations, for 131 in total. Geometry was checked with read-only FeatureScript evaluations (body bounding boxes,
+cylinder face radii and origins).
+
+| Step | Result |
+|---|---|
+| `cad_variable t = 40 mm` | OK. Creating a variable makes the next call re-read (2 requests) |
+| `cad_sketch Base` on Top (60 x `#t` rectangle), `cad_extrude Body` 20 mm | OK |
+| `cad_find` edges of Body's end cap, `evaluate=true` | 4 edges, centroids at z = 20 (1 request) |
+| `cad_fillet` 3 mm (end-cap edges), `cad_chamfer` 1 mm (start-cap edges) | OK; four r = 3 fillet faces at the top edges |
+| `cad_plane MidX` (Right + 30 mm), `Above` (Top + 40 mm) | OK; `Above` origin (0, 0, 40), normal +Z, x +X |
+| `cad_sketch BossSk` on Body's end cap, `cad_extrude Boss` 10 mm add | OK; the circle at sketch (15, 20) landed at world (15, 20, 20) |
+| `cad_mirror` Boss across `MidX` | OK; copy at x = 45 |
+| `cad_sketch HoleSk` on `{"plane": "Above"}`, point p1 (10, 10) | OK; p1 at world (10, 10, 40) |
+| `cad_hole` 5 mm through at p1 | **ERROR** (`getFeatureError` = `REGEN_ERROR`, no geometry). Left in the tree for inspection |
+| `cad_pattern` linear, Boss x 2, 12 mm, direction = Body's +Y face | OK; copy at (15, 32) |
+| `cad_shell` Body's start cap, 1.5 mm, `outward=false` | OK; **inward**: bounding box unchanged (0..60, 0..40), inner radii 3 → 1.5 and 5 → 3.5 |
+| `cad_sketch RevSk` on Front, `cad_revolve Rev` about line `ax` | OK; ring r 10..20 about the vertical axis at (70, 0) |
+| `cad_boolean` union of Body and Rev | OK; one solid body, bounding box (0, -20, 0)..(90, 50, 30) after the `t` change |
+| `cad_variable t = 50 mm` | OK; **every feature regenerated OK** (only Hole stays in ERROR). The fillet edges followed the face to y = 25 and y = 47 |
+
+Facts learned:
+- Front-plane sketch x/y map to world X/Z; Top and its offset planes, and a +Z extrude cap, map sketch x/y to world X/Y
+  with the origin over the world origin.
+- `box` is a reserved word in FeatureScript (a parse error in an eval script).
+- The FS eval reply now reports `serializationVersion` `1.2.24`.
+- When an eval script fails to parse, `result` is null and the error is only in `notices`. `eval_featurescript` then raises
+  "missing result" and the notice text is lost. Surfacing it is a candidate improvement for `cad_find`.
+
 ### Typed features: open live items
 
-- [ ] Hole feature variants: which of LEGACY / V2 / V3 does Onshape's hole read from what we send?
-- [ ] Shell `oppositeDirection` = outward: confirm true grows the wall outward.
-- [ ] Selections follow upstream edits: change a variable (e.g. `t`) and confirm queryString selections re-evaluate and every dependent feature regenerates.
-- [ ] Fillet and chamfer edge `queryString` persistence (extrude is verified; these are not yet).
-- [ ] `serializationVersion`: the code sends 1.1.23, live reports 1.2.10. Check nothing depends on the difference.
-- [ ] Sketch on an offset plane or a face: the sketch x/y axes and origin come from that plane or face, so
-  horizontal/vertical constraints, signed distances and the local DOF check may not mean what the agent assumes.
-  Check where a sketch on a `cad_plane` plane and on an extrude cap actually lands (the `cad_sketch` docstring
-  warns the agent).
+- [ ] Hole: the V3 parameter set we send regenerates with `REGEN_ERROR`. Find out what the hole feature needs (see Task 15).
+- [x] Shell direction: `outward=false` gives an inward wall, as intended (verified). `outward=true` is not exercised live.
+- [x] Selections follow upstream edits: verified (`t` 40 → 50 mm, every query-based feature regenerated OK and moved).
+- [x] Fillet and chamfer edge `queryString` persistence: verified (both OK after an upstream change).
+- [ ] `serializationVersion`: the code sends 1.1.23; live replies report 1.2.10 and 1.2.24. Nothing failed because of it.
+- [x] Sketch on an offset plane or a +Z face: lands in world X/Y with the origin over the world origin (verified).
+  Faces with other normals are not verified, so the `cad_sketch` docstring warning stays.
