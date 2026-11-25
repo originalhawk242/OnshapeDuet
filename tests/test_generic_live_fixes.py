@@ -142,9 +142,8 @@ def test_every_sent_default_matches_onshapes_featurespec():
         if t in ("newSketch", "assignVariable"):
             continue
         p = prepare(SPECS, t, {}, FL, mode="add")
-        sent = [q for q in p.parameters if not q["btType"].startswith("BTMParameterLookupTablePath")]
-        assert sent, t
-        assert_matches_spec(feature(t, "X", sent), t)
+        assert p.parameters, t
+        assert_matches_spec(feature(t, "X", p.parameters), t)
 
 
 # ---- review round 1 + peer notes -------------------------------------------------------------
