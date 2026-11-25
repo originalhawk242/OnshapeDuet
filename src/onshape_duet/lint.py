@@ -10,11 +10,16 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Literal
 
+from .features.params import Value, parse_length_mm
+from .model import FeatureList
 from .sketch.solver import DofReport
 from .textsafe import clean
+from .variables import VARIABLE_FEATURE_TYPE, find_variable
 
-_DEFAULT_NAME = re.compile(
-    r"(Sketch|Extrude|Fillet|Revolve|Chamfer|Shell|Hole|Boolean|Pattern|Mirror|Plane) \d+")
+# Onshape's own default feature names ("Linear pattern 1", "Plane 2", ...).
+DEFAULT_NAME = re.compile(
+    r"(Sketch|Extrude|Fillet|Revolve|Chamfer|Shell|Hole|Boolean|Pattern|Linear pattern"
+    r"|Circular pattern|Mirror|Plane|Offset plane) \d+")
 
 
 @dataclass(frozen=True)
@@ -43,9 +48,23 @@ def _dimensions(spec: dict) -> list[dict]:
     return [d for d in dims if isinstance(d, dict)]
 
 
-def lint_sketch(spec: dict, report: DofReport, name: str) -> list[Finding]:
+def duplicate_name(name: str, fl: FeatureList) -> Finding | None:
+    """REFUSE a name another (non-variable) feature already has: every later typed tool
+    would refuse that name as ambiguous."""
+    if any(f.type != VARIABLE_FEATURE_TYPE and f.name == name for f in fl.features):
+        return Finding("refuse", "DUPLICATE_NAME",
+                       f"a feature named {clean(name)!r} already exists; references "
+                       "are by name, so choose a unique name")
+    return None
+
+
+def lint_sketch(spec: dict, report: DofReport, name: str,
+                fl: FeatureList | None = None) -> list[Finding]:
+    """`fl` (the document's feature list) enables the DUPLICATE_NAME check."""
     out: list[Finding] = []
     dims = _dimensions(spec)
+    if fl is not None and (dup := duplicate_name(name, fl)) is not None:
+        out.append(dup)
 
     if report.not_assessed:
         out.append(Finding("refuse", "SKETCH_UNSUPPORTED_ENTITY",
@@ -73,7 +92,7 @@ def lint_sketch(spec: dict, report: DofReport, name: str) -> list[Finding]:
                                f"sketch is under-constrained ({report.dof} degrees of freedom "
                                f"left); free: {_list(report.free) or 'unknown'}"))
 
-    if _DEFAULT_NAME.fullmatch(str(name)):
+    if DEFAULT_NAME.fullmatch(str(name)):
         out.append(Finding("warn", "DEFAULT_NAME",
                            f"name {clean(name)!r} looks like a default; give it a "
                            "descriptive name"))
@@ -88,4 +107,84 @@ def lint_sketch(spec: dict, report: DofReport, name: str) -> list[Finding]:
             out.append(Finding("warn", "MAGIC_NUMBER",
                                f"the literal {v:g} is used in {n} dimensions; "
                                "make it a variable and reference it with '#name'"))
+    return out
+
+
+_HOLE_CALLER_PARAMS = ("holeDiameterV3", "holeDepthV3")
+
+
+def _norm(expr: str) -> str:
+    return "".join(expr.split()).lower()
+
+
+def _lint_params(f, defaults: dict[str, dict[str, object]] | None = None) -> dict:
+    """The parameters of an existing feature that can hold a magic number. A hole carries ~160
+    fixed defaults (e.g. 12 mm); only the caller-set ones count, even at their default value.
+    Any other feature drops a parameter equal to its spec default (`defaults`, per type), since
+    generic adds and the Onshape UI store every hidden default."""
+    if f.type == "hole":
+        # a through hole carries the spec default depth (12 mm), which is not a caller value
+        blind = f.params.get("endStyleV2") == "BLIND"
+        return {k: f.params[k] for k in _HOLE_CALLER_PARAMS
+                if k in f.params and (blind or k != "holeDepthV3")}
+    known = (defaults or {}).get(f.type)
+    if not known:
+        return f.params
+    return {k: v for k, v in f.params.items()
+            if not (isinstance(v, str) and isinstance(known.get(k), str)
+                    and _norm(v) == _norm(known[k]))}
+
+
+def lint_feature(name: str, values: list[Value], fl: FeatureList, *,
+                 defaults: dict[str, dict[str, object]] | None = None) -> list[Finding]:
+    """`defaults`: {feature type: {parameter id: spec default}} for the types whose spec is
+    known; an existing parameter at its spec default is not a magic number. None (or a type
+    missing from it) checks every parameter of that feature."""
+    out: list[Finding] = []
+    if DEFAULT_NAME.fullmatch(str(name)):
+        out.append(Finding("warn", "DEFAULT_NAME",
+                           f"name {clean(name)!r} looks like a default; give it a "
+                           "descriptive name"))
+    if (dup := duplicate_name(name, fl)) is not None:
+        out.append(dup)
+
+    for v in values:
+        if v.var is None:
+            continue
+        var_feature = find_variable(fl, v.var)
+        if var_feature is None:
+            out.append(Finding("refuse", "UNKNOWN_VARIABLE",
+                               f"{clean(v.arg)}: variable {clean(v.var)!r} does not exist "
+                               "in this Part Studio; create it with cad_variable first"))
+        elif v.kind == "length":
+            vtype = var_feature.params.get("variableType", "LENGTH")
+            if vtype != "LENGTH":
+                out.append(Finding("refuse", "NON_LENGTH_VARIABLE",
+                                   f"{clean(v.arg)}: variable {clean(v.var)!r} is a "
+                                   f"{clean(vtype, 20)} variable, not a length"))
+
+    literals = [v for v in values if v.kind == "length" and v.literal is not None]
+    flagged: set[int] = set()
+    for i, a in enumerate(literals):
+        if i in flagged:
+            continue
+        twins = [j for j in range(i + 1, len(literals))
+                 if abs(literals[j].literal - a.literal) <= 1e-9]
+        if twins:
+            flagged.update(twins)
+            others = ", ".join(clean(literals[j].arg) for j in twins)
+            out.append(Finding("warn", "MAGIC_NUMBER",
+                               f"the literal {a.literal:g} mm is used for both "
+                               f"{clean(a.arg)} and {others}; make it a variable "
+                               "(cad_variable) and reference it with '#name'"))
+            continue
+        hit = next((f for f in fl.features if f.type != VARIABLE_FEATURE_TYPE
+                    and any(isinstance(p, str) and (m := parse_length_mm(p, require_unit=True)) is not None
+                            and abs(m - a.literal) <= 1e-9
+                            for p in _lint_params(f, defaults).values())), None)
+        if hit is not None:
+            out.append(Finding("warn", "MAGIC_NUMBER",
+                               f"{clean(a.arg)}: the literal {a.literal:g} mm also appears "
+                               f"in feature {clean(hit.name)!r}; make it a variable "
+                               "(cad_variable) and reference it with '#name'"))
     return out

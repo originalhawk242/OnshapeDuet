@@ -207,3 +207,150 @@ def test_magic_number_groups_by_absolute_value():
                            {"type": "distance_h", "refs": ["p", "q"], "value": 20}]}
     found = [f for f in lint(spec) if f.code == "MAGIC_NUMBER"]
     assert len(found) == 1 and "3 dimensions" in found[0].message
+
+
+# ---- lint_feature ----
+from onshape_duet.features.params import Value
+from onshape_duet.lint import lint_feature
+from onshape_duet.model import Feature, FeatureList
+from onshape_duet.variables import make_variable_feature
+
+
+def _fl(*features):
+    return FeatureList("m", list(features))
+
+
+def _len(arg, lit=None, var=None):
+    return Value("length", f"#{var}" if var else f"{lit:g} mm", lit, var, arg)
+
+
+def _codes(fs):
+    return {(f.level, f.code) for f in fs}
+
+
+def test_lint_feature_default_name_warns():
+    assert ("warn", "DEFAULT_NAME") in _codes(lint_feature("Extrude 3", [], _fl()))
+
+
+def test_lint_feature_duplicate_name_refused():
+    fl = _fl(Feature("F1", "extrude", "Base", "OK", {}))
+    assert ("refuse", "DUPLICATE_NAME") in _codes(lint_feature("Base", [], fl))
+
+
+def test_lint_unknown_variable_refused():
+    fs = lint_feature("Rib", [_len("depth", var="nope")], _fl())
+    assert ("refuse", "UNKNOWN_VARIABLE") in _codes(fs)
+
+
+def test_lint_non_length_variable_refused():
+    v = make_variable_feature("V1", "tilt", "45 deg")
+    v.params["variableType"] = "ANGLE"
+    fs = lint_feature("Rib", [_len("depth", var="tilt")], _fl(v))
+    assert ("refuse", "NON_LENGTH_VARIABLE") in _codes(fs)
+
+
+def test_lint_magic_number_across_features():
+    fl = _fl(Feature("F1", "extrude", "Base\nplate", "OK", {"depth": "10 mm"}))
+    fs = lint_feature("Round", [_len("radius", 10)], fl)
+    m = [f for f in fs if f.code == "MAGIC_NUMBER"]
+    assert len(m) == 1 and m[0].level == "warn"
+    assert "Base plate" in m[0].message and "cad_variable" in m[0].message
+
+
+def test_lint_magic_number_within_call():
+    fs = lint_feature("Rib", [_len("a", 5), _len("b", 5)], _fl())
+    m = [f for f in fs if f.code == "MAGIC_NUMBER"]
+    assert len(m) == 1 and "a" in m[0].message and "b" in m[0].message
+
+
+def test_lint_clean_feature_has_no_findings():
+    v = make_variable_feature("V1", "w", "10 mm")
+    fl = _fl(v, Feature("F1", "extrude", "Base", "OK", {"depth": "7 mm"}))
+    assert lint_feature("Rib", [_len("depth", var="w"), _len("r", 3)], fl) == []
+
+
+# --- final review M3, M6 ---
+
+def test_lint_magic_number_ignores_unitless_counts():
+    fl = _fl(Feature("F1", "linearPattern", "Row", "OK", {"instanceCount": "4", "distance": "9 mm"}))
+    fs = lint_feature("Rib", [_len("depth", 4)], fl)
+    assert "MAGIC_NUMBER" not in {f.code for f in fs}
+    fs = lint_feature("Rib", [_len("depth", 9)], fl)
+    assert "MAGIC_NUMBER" in {f.code for f in fs}
+
+
+@pytest.mark.parametrize("name", ["Linear pattern 1", "Circular pattern 2", "Offset plane 1",
+                                  "Plane 3", "Boolean 1", "Hole 2"])
+def test_lint_feature_onshape_default_names_warn(name):
+    assert ("warn", "DEFAULT_NAME") in _codes(lint_feature(name, [], _fl()))
+
+
+def test_lint_feature_descriptive_name_does_not_warn():
+    assert "DEFAULT_NAME" not in {f.code for f in lint_feature("Linear pattern of ribs", [], _fl())}
+
+
+def test_lint_existing_hole_only_caller_params_count_for_magic_number():
+    hole = Feature("F1", "hole", "Holes", "OK", {"holeDiameterV3": "5 mm", "holeDiameter": "12 mm",
+                                                 "holeDepthV3": "5 mm", "endStyleV2": "BLIND", "someDefault": "12 mm"})
+    fl = _fl(hole)
+    assert "MAGIC_NUMBER" not in {f.code for f in lint_feature("Rib", [_len("depth", 12)], fl)}
+    assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 5)], fl)}
+
+
+def _real_hole(depth=None):
+    from onshape_duet.features.builders import build_hole
+    from onshape_duet.model import flatten_params
+    b = build_hole(_fl(Feature("S", "newSketch", "Base", "OK", {})), sketch="Base",
+                   points=["c.center"], diameter=4, depth=depth)
+    return Feature("H", "hole", "Holes", "OK", flatten_params(b.feature_json["parameters"]))
+
+
+def test_lint_real_through_hole_default_depth_is_not_magic():
+    fl = _fl(_real_hole())
+    assert "MAGIC_NUMBER" not in {f.code for f in lint_feature("Rib", [_len("depth", 12)], fl)}
+
+
+def test_lint_real_blind_hole_depth_is_magic():
+    fl = _fl(_real_hole(12))
+    assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 12)], fl)}
+
+
+# --- follow-up review I2: hidden spec defaults are not magic numbers ---
+
+def _chamfer():
+    return Feature("F1", "chamfer", "Edge break", "OK",
+                   {"width": "1 mm", "width1": "5 mm", "width2": "5mm", "angle": "45 deg"})
+
+
+_CHAMFER_DEFAULTS = {"chamfer": {"width": "5 mm", "width1": "5 mm", "width2": "5 mm"}}
+
+
+def test_lint_spec_default_is_not_magic():
+    fl = _fl(_chamfer())
+    fs = lint_feature("Rib", [_len("depth", 5)], fl, defaults=_CHAMFER_DEFAULTS)
+    assert "MAGIC_NUMBER" not in {f.code for f in fs}  # width1, width2 (spacing ignored) are defaults
+
+
+def test_lint_without_defaults_still_flags_hidden_default():
+    fl = _fl(_chamfer())
+    assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 5)], fl)}
+    assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 5)], fl,
+                                                           defaults={"extrude": {"depth": "5 mm"}})}
+
+
+def test_lint_value_that_differs_from_default_still_magic():
+    fl = _fl(_chamfer())
+    fs = lint_feature("Rib", [_len("depth", 1)], fl, defaults=_CHAMFER_DEFAULTS)
+    m = [f for f in fs if f.code == "MAGIC_NUMBER"]
+    assert len(m) == 1 and "Edge break" in m[0].message
+
+
+def test_lint_hole_caller_params_count_even_at_their_default():
+    hole = Feature("F1", "hole", "Holes", "OK", {"holeDiameterV3": "5 mm", "holeDepthV3": "12 mm",
+                                                 "endStyleV2": "THROUGH"})
+    fl = _fl(hole)
+    defaults = {"hole": {"holeDiameterV3": "5 mm", "holeDepthV3": "12 mm"}}
+    assert "MAGIC_NUMBER" in {f.code for f in lint_feature("Rib", [_len("depth", 5)], fl,
+                                                           defaults=defaults)}
+    assert "MAGIC_NUMBER" not in {f.code for f in lint_feature("Rib", [_len("depth", 12)], fl,
+                                                               defaults=defaults)}

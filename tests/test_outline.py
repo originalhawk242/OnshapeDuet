@@ -98,3 +98,33 @@ def test_long_values_truncated_and_nested_params_absent():
     assert "nested" not in out and "lst" not in out
     assert "note=" + "v" * 39 + "…" in lines[0]
     assert len(lines[-1]) < 300 and "…" in lines[-1]
+
+
+def test_outline_hole_shows_only_key_params():
+    params = {f"p{i}": f"{i} mm" for i in range(30)}
+    params.update({"holeDiameterV3": "5 mm", "styleV2": "SIMPLE", "endStyleV2": "THROUGH"})
+    out = render_outline(_fl(Feature("F", "hole", "Holes", "OK", params)), [])
+    assert out.endswith("| styleV2=SIMPLE, holeDiameterV3=5 mm, endStyleV2=THROUGH, +30 more (cad_inspect)")
+
+
+def test_outline_other_feature_capped_at_12():
+    params = {f"k{i}": f"{i} mm" for i in range(15)}
+    out = render_outline(_fl(Feature("F", "extrude", "Boss", "OK", params)), [])
+    assert out.count("=") == 12 and out.endswith(", +3 more (cad_inspect)")
+    assert "k11=11 mm" in out and "k12" not in out
+
+
+def _real_hole(depth=None):
+    from onshape_duet.features.builders import build_hole
+    from onshape_duet.model import flatten_params
+    b = build_hole(_fl(Feature("S", "newSketch", "Base", "OK", {})), sketch="Base",
+                   points=["c.center"], diameter=4, depth=depth)
+    return Feature("H", "hole", "Holes", "OK", flatten_params(b.feature_json["parameters"]))
+
+
+def test_outline_through_hole_hides_default_depth_blind_shows_it():
+    through = render_outline(_fl(_real_hole()), [])
+    assert "holeDepthV3" not in through and "endStyleV2=THROUGH" in through
+    assert "more (cad_inspect)" in through
+    blind = render_outline(_fl(_real_hole(12)), [])
+    assert "holeDepthV3=12 mm" in blind

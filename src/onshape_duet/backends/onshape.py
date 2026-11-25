@@ -8,6 +8,7 @@ until Task 12; they are isolated here as constants/small functions.
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import hmac
 import os
@@ -22,9 +23,11 @@ import httpx
 from ..budget import BudgetExceeded, Ledger
 from ..config import Config
 from ..docref import DocRef, is_valid_id
-from ..model import Feature, FeatureList, Variable, WriteResult
+from ..generic.specs import FeatureSpec, parse_feature_specs
+from ..model import Feature, FeatureList, Variable, WriteResult, flatten_params
 from ..variables import (VARIABLE_EXPR_PARAM, VARIABLE_FEATURE_NAME, VARIABLE_FEATURE_TYPE, VARIABLE_NAME_PARAM,
                          variables_from_features)
+from ..textsafe import clean
 from .base import PostWriteError, StaleVersion
 
 # --- Unverified endpoint paths (Task 12) -----------------------------------
@@ -40,6 +43,12 @@ def _seg(value: str) -> str:
 def features_path(ref: DocRef) -> str:
     return (f"/api/v6/partstudios/d/{_seg(ref.document)}/w/{_seg(ref.workspace)}"
             f"/e/{_seg(ref.element)}/features")
+
+
+def feature_specs_path(ref: DocRef) -> str:
+    return features_path(ref).removesuffix("/features") + "/featurespecs"
+def featurescript_path(ref: DocRef) -> str:
+    return features_path(ref)[: -len("features")] + "featurescript"
 
 
 def feature_update_path(ref: DocRef, feature_id: str) -> str:
@@ -80,30 +89,46 @@ def _s(x: object) -> str:
     return x if isinstance(x, str) else ""
 
 
-def _flatten_param(p: dict) -> object:
-    """Editable value of a parameter: its expression (quantities), else its scalar
-    value (strings, enums, booleans, numbers); anything else (queries...) stays raw."""
-    if isinstance(p.get("expression"), str):
-        return p["expression"]
-    val = p.get("value")
-    if isinstance(val, (str, int, float, bool)):
-        return val
-    return p
-
-
 def _parse_feature(f: dict, states: dict) -> Feature:
     try:
         fid = _s(f.get("featureId"))
         st = states.get(fid) or {}
+        raw_params = f.get("parameters", [])
+        if not isinstance(raw_params, list) or not all(isinstance(p, dict) for p in raw_params):
+            raise TypeError("parameters must be a list of objects")  # flatten_params would skip these
         return Feature(
             id=fid,
             type=_s(f.get("featureType")),
             name=_s(f.get("name")),
             status=_s(st.get("featureStatus")) or "OK",
-            params={_s(p.get("parameterId")): _flatten_param(p) for p in f.get("parameters", [])},
+            params=flatten_params(raw_params),
+            raw=copy.deepcopy(f),
         )
     except (AttributeError, KeyError, TypeError) as e:
         raise RuntimeError(f"unexpected Onshape response: malformed feature ({type(e).__name__})") from e
+
+
+def _eval_error_detail(notices: object) -> str:
+    """Up to 3 ERROR notices as `<type> line L:C: <message>`; tolerant of malformed input."""
+    if not isinstance(notices, list):
+        return ""
+    parts: list[str] = []
+    for n in notices:
+        if not isinstance(n, dict) or n.get("level") != "ERROR":
+            continue
+        text = clean(n.get("type") or "", 40)
+        trace = n.get("stackTrace")
+        loc = trace[0] if isinstance(trace, list) and trace else None
+        if isinstance(loc, dict) and loc.get("line") is not None and loc.get("column") is not None:
+            text = f"{text} line {clean(loc['line'], 10)}:{clean(loc['column'], 10)}".strip()
+        msg = clean(n.get("message") or "", 150)
+        if msg:
+            text = f"{text}: {msg}" if text else msg
+        if text:
+            parts.append(text)
+        if len(parts) == 3:
+            break
+    return "; ".join(parts)
 
 
 class OnshapeBackend:
@@ -244,16 +269,52 @@ class OnshapeBackend:
             raise RuntimeError("unexpected Onshape response: malformed feature list")
         return FeatureList(mv, [_parse_feature(f, states) for f in feats])
 
+    def eval_featurescript(self, ref: DocRef, script: str) -> dict:
+        return self.eval_featurescript_versioned(ref, script)[0]
+
+    def eval_featurescript_versioned(self, ref: DocRef, script: str) -> tuple[dict, str | None]:
+        # Verified live: `queries` must be an object (a list gives HTTP 400). The reply
+        # carries the evaluated version as `sourceMicroversion` (tests/fixtures/probes.json).
+        data = self._ok(self._request("POST", featurescript_path(ref),
+                                      body={"script": script, "queries": {}}))
+        result = data.get("result")
+        if not isinstance(result, dict):
+            detail = _eval_error_detail(data.get("notices"))
+            if detail:
+                raise RuntimeError(clean("FeatureScript evaluation failed: " + detail, 300))
+            raise RuntimeError("unexpected Onshape response: missing result")
+        mv = data.get("sourceMicroversion")
+        return result, (mv if isinstance(mv, str) and mv else None)
+
     def get_variables(self, ref: DocRef) -> list[Variable]:
         return variables_from_features(self.list_features(ref))
+
+    def get_feature_specs(self, ref: DocRef) -> list[FeatureSpec]:
+        return parse_feature_specs(self._ok(self._request("GET", feature_specs_path(ref))))
 
     def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
         body = {"feature": feature_json, "serializationVersion": SERIALIZATION_VERSION}
         data = self._write(features_path(ref), body, expected_microversion)
+        return self._feature_result(ref, data, expected_microversion, "add_feature")
+
+    def update_feature(self, ref: DocRef, feature_id: str, feature_json: dict,
+                       expected_microversion: str) -> WriteResult:
+        if not isinstance(feature_id, str) or not _FEATURE_ID.fullmatch(feature_id):
+            raise RuntimeError("unexpected Onshape response: bad featureId on existing feature")
+        body = {"feature": feature_json, "serializationVersion": SERIALIZATION_VERSION}
+        data = self._write(feature_update_path(ref, feature_id), body, expected_microversion)
+        result = self._feature_result(ref, data, expected_microversion, "update_feature")
+        if result.feature.id != feature_id:
+            raise PostWriteError(
+                "unexpected Onshape response: update_feature reply is for a different feature")
+        return result
+
+    def _feature_result(self, ref: DocRef, data: dict, expected_microversion: str,
+                        what: str) -> WriteResult:
         raw = data.get("feature")
         if not isinstance(raw, dict) or not raw.get("featureId"):
             raise PostWriteError(
-                "unexpected Onshape response: add_feature reply missing feature/featureId")
+                f"unexpected Onshape response: {what} reply missing feature/featureId")
         try:
             st = {raw["featureId"]: data.get("featureState") or {}}
             feat = _parse_feature(raw, st)

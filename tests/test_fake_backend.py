@@ -143,3 +143,12 @@ def test_feature_ids_do_not_collide_after_deletes():
 
 def test_docref_hashable():
     assert {REF: 1}[DocRef("a"*24, "b"*24, "c"*24)] == 1
+
+
+def test_add_feature_flattens_parameters():
+    fb = FakeBackend()
+    fb.add_feature(REF, {"featureType": "extrude", "name": "Body", "parameters": [
+        {"btType": "BTMParameterQuantity-147", "parameterId": "depth", "expression": "#depth"},
+        {"btType": "BTMParameterEnum-145", "parameterId": "operationType", "value": "NEW"}]}, "mv0")
+    f = fb.list_features(REF).features[0]
+    assert (f.type, f.params) == ("extrude", {"depth": "#depth", "operationType": "NEW"})

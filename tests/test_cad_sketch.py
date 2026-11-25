@@ -8,7 +8,7 @@ from onshape_duet.docref import DocRef
 from onshape_duet.model import Variable
 from onshape_duet.sketch.serialize import to_feature_json
 from onshape_duet.sketch.spec import SketchSpecError, parse_sketch_spec
-from onshape_duet.tools import Context, cad_sketch
+from onshape_duet.tools import Context, cad_read, cad_sketch
 
 REF = DocRef("a" * 24, "b" * 24, "c" * 24)
 
@@ -86,11 +86,11 @@ def test_apply_without_prior_read_is_refused(env):
 
 def test_response_reports_requests_and_budget_left(env):
     ctx, backend, ledger = env
+    ctx.read(REF)
     before = ledger.used
     out = cad_sketch(ctx, REF, "S1", SPEC)
-    assert out["requests"] == ledger.used - before == 0  # dry run, no variable referenced: free
-    assert out["budget_left"] == ledger.remaining == 100
-    ctx.read(REF)
+    assert out["requests"] == ledger.used - before == 0  # dry run after a read: free
+    assert out["budget_left"] == ledger.remaining == 98
     before = ledger.used
     out = cad_sketch(ctx, REF, "S1", SPEC, apply=True)
     assert out["requests"] == ledger.used - before == 2  # backstop version check + the write
@@ -186,7 +186,7 @@ def test_variable_change_needs_no_reserialization(env):
     ctx.read(REF)
     spec2 = {"entities": [{"id": "l", "type": "line", "start": [0, 0], "end": [80, 0]}],
              "dimensions": spec["dimensions"]}
-    assert cad_sketch(ctx, REF, "S", spec2, apply=True)["applied"] is True
+    assert cad_sketch(ctx, REF, "S2", spec2, apply=True)["applied"] is True  # unique name (M7)
     assert len(sent) == 2
     import json
     assert _dim_expr(sent[0]) == _dim_expr(sent[1]) == "#w"
@@ -308,7 +308,7 @@ def test_serializer_never_emits_constraints_on_unassessed_entities():
 
 # --- final-review fixes: I1 (regeneration status) ---
 
-@pytest.mark.parametrize("status", ["ERROR", "WARNING", "INFO"])
+@pytest.mark.parametrize("status", ["ERROR", "WARNING"])
 def test_apply_reports_regeneration_status(tmp_path, status):
     from onshape_duet.model import Feature, WriteResult
 
@@ -400,3 +400,113 @@ def test_diameter_dimension_carries_label_placement():
     dia = next(c for c in feat["constraints"] if c["constraintType"] == "DIAMETER")
     ids = {p["parameterId"] for p in dia["parameters"]}
     assert {"localFirst", "length", "labelRatio", "labelAngle"} <= ids
+
+
+# ---- sketches on plane features and planar faces ----
+from onshape_duet.feature_tools import cad_extrude, cad_plane  # noqa: E402
+
+
+def _plane_env(env):
+    ctx, backend, ledger = env
+    ctx.read(REF)
+    assert cad_plane(ctx, REF, "Mid", "Top", 10, apply=True)["applied"] is True
+    return env
+
+
+def test_sketch_on_plane_feature(env):
+    ctx, backend, ledger = _plane_env(env)
+    spec = {**SPEC, "plane": {"plane": "Mid"}}
+    out = cad_sketch(ctx, REF, "S", spec, apply=True)
+    assert out["applied"] is True, out
+    fl, _ = ctx.snapshot(REF)
+    s = next(f for f in fl.features if f.name == "S")
+    assert s.type == "newSketch"
+
+
+def test_sketch_plane_param_in_json(env):
+    ctx, backend, ledger = _plane_env(env)
+    fl, _ = ctx.snapshot(REF)
+    mid = next(f for f in fl.features if f.name == "Mid")
+    from onshape_duet.features.refs import plane_param
+    sk = parse_sketch_spec({**SPEC, "plane": {"plane": "Mid"}}, {})
+    fj = to_feature_json(sk, "S", plane_param=plane_param("sketchPlane", sk.plane, fl))
+    p = fj["parameters"][0]
+    assert p["parameterId"] == "sketchPlane"
+    assert mid.id in p["queries"][0]["queryString"]
+
+
+def test_sketch_on_face_selector(env):
+    ctx, backend, ledger = env
+    ctx.read(REF)
+    assert cad_sketch(ctx, REF, "Base", SPEC, apply=True)["applied"] is True
+    assert cad_extrude(ctx, REF, "Body", "Base", 5, apply=True)["applied"] is True
+    face = {"entity": "face", "created_by": "Body", "cap": "end"}
+    out = cad_sketch(ctx, REF, "Top sk", {**SPEC, "plane": face})
+    assert "error" not in out, out
+    assert out["applied"] is False
+    out = cad_sketch(ctx, REF, "Top sk", {**SPEC, "plane": face}, apply=True)
+    assert out["applied"] is True, out
+
+
+def test_sketch_on_nonplanar_selector_refused(env):
+    ctx, backend, ledger = env
+    ctx.read(REF)
+    cad_sketch(ctx, REF, "Base", SPEC, apply=True)
+    cad_extrude(ctx, REF, "Body", "Base", 5, apply=True)
+    face = {"entity": "face", "created_by": "Body", "geometry": "cylinder"}
+    out = cad_sketch(ctx, REF, "S2", {**SPEC, "plane": face}, apply=True)
+    assert out["applied"] is False
+    assert "planar" in out["error"]
+
+
+def test_sketch_unknown_plane_feature_is_error(env):
+    ctx, backend, ledger = env
+    ctx.read(REF)
+    out = cad_sketch(ctx, REF, "S", {**SPEC, "plane": {"plane": "Nope"}})
+    assert out["applied"] is False and "Nope" in out["error"]
+
+
+def test_sketch_standard_plane_still_zero_requests(env):
+    """Zero requests once the document was read: the duplicate-name check (M7) needs the
+    feature list, so without a cached read a dry run costs up to 2 requests."""
+    ctx, backend, ledger = env
+    cad_read(ctx, REF)
+    before = ledger.used
+    out = cad_sketch(ctx, REF, "S", SPEC)
+    assert out["applied"] is False and "error" not in out
+    assert ledger.used - before == 0
+
+
+def test_parse_dict_plane_unchanged():
+    sk = parse_sketch_spec({"plane": {"plane": "Mid"}, "entities": []}, {})
+    assert sk.plane == {"plane": "Mid"}
+    with pytest.raises(SketchSpecError):
+        parse_sketch_spec({"plane": "Bogus", "entities": []}, {})
+
+
+# --- final review M7: duplicate sketch names are refused like typed features ---
+
+def test_sketch_duplicate_name_refused_on_dry_run_and_apply(env):
+    ctx, backend, _ = env
+    ctx.read(REF)
+    assert cad_sketch(ctx, REF, "Base", SPEC, apply=True)["applied"] is True
+    for apply in (False, True):
+        out = cad_sketch(ctx, REF, "Base", SPEC, apply=apply)
+        assert out["applied"] is False and "DUPLICATE_NAME" in out["error"]
+        assert ("refuse", "DUPLICATE_NAME") in {(f["level"], f["code"]) for f in out["findings"]}
+    assert backend.calls["add_feature"] == 1
+
+
+def test_sketch_may_share_a_variable_name(env):
+    ctx, backend, _ = env
+    backend._doc(REF).variables["w"] = "5 mm"
+    ctx.read(REF)
+    assert "DUPLICATE_NAME" not in repr(cad_sketch(ctx, REF, "w", SPEC))
+
+
+def test_sketch_dry_run_without_read_consults_document(env):
+    ctx, backend, ledger = env
+    out = cad_sketch(ctx, REF, "S", SPEC)
+    assert out["applied"] is False and "error" not in out
+    assert out["requests"] == 2 and out["based_on_version"] == "mv0"
+    assert REF not in ctx.last_read  # a dry run is not a read

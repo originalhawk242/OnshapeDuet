@@ -1,25 +1,34 @@
 """Compact plain-text outline of a Part Studio for LLM consumption."""
 from __future__ import annotations
 
-import re
-
+from .lint import DEFAULT_NAME as _DEFAULT_NAME
 from .model import Feature, FeatureList, Variable
 from .sketch.solver import DofReport
 from .textsafe import clean
 
-_DEFAULT_NAME = re.compile(
-    r"^(Sketch|Extrude|Fillet|Revolve|Chamfer|Shell|Hole|Boolean|Pattern|Mirror|Plane) \d+$"
-)
 _MAX_VALUE_LEN = 40
 
 
+_MAX_PARAMS = 12
+_HOLE_KEYS = ("styleV2", "holeDiameterV3", "endStyleV2", "holeDepthV3")
+
+
 def _editable_numbers(feature: Feature) -> str:
-    parts = []
+    entries = {}
     for key, val in feature.params.items():
         if isinstance(val, bool):
             continue
         if isinstance(val, (int, float)) or (isinstance(val, str) and val.strip()):
-            parts.append(f"{clean(key, 30)}={clean(val, _MAX_VALUE_LEN)}")
+            entries[key] = f"{clean(key, 30)}={clean(val, _MAX_VALUE_LEN)}"
+    if feature.type == "hole":
+        blind = feature.params.get("endStyleV2") == "BLIND"
+        shown = [entries[k] for k in _HOLE_KEYS
+                 if k in entries and (blind or k != "holeDepthV3")]
+    else:
+        shown = list(entries.values())[:_MAX_PARAMS]
+    parts = list(shown)
+    if len(entries) > len(shown):
+        parts.append(f"+{len(entries) - len(shown)} more (cad_inspect)")
     return ", ".join(parts)
 
 

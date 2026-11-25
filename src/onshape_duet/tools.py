@@ -8,6 +8,7 @@ before the write.
 from __future__ import annotations
 
 import os
+import difflib
 import functools
 import re
 import threading
@@ -21,6 +22,15 @@ from .budget import BudgetExceeded, Ledger
 from .cache import DocCache
 from .config import Config
 from .docref import DocRef
+from .features.params import feature as _btm_feature
+from .generic.lookup import find_feature
+from .generic.lint import lint_generic
+from .generic.update import merge
+from .generic.render import render_feature, render_spec, render_spec_index
+from .generic.specs import FeatureSpec
+from .generic.validate import TYPED_TOOL_REQUIRED, prepare
+from .features.params import FeatureSpecError
+from .features.refs import plane_param
 from .lint import Finding, lint_sketch
 from .model import Feature, FeatureList
 from .outline import render_outline
@@ -42,6 +52,8 @@ class Context:
     config_path: Path | None = None
     # Why the next write needs a fresh cad_read (cleared by `read`).
     reread: dict[DocRef, str] = field(default_factory=dict)
+    # Native feature specs per document, fetched once (stored only on success).
+    specs: dict[DocRef, list[FeatureSpec]] = field(default_factory=dict)
     # MCP runs sync tools in worker threads; one RLock serialises every tool body
     # (last_read, DocCache and the ledger-delta request counts are shared state).
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
@@ -51,6 +63,11 @@ class Context:
         self.last_read[ref] = fl.microversion
         self.reread.pop(ref, None)
         return fl
+
+    def feature_specs(self, ref: DocRef) -> list[FeatureSpec]:
+        if ref not in self.specs:
+            self.specs[ref] = self.backend.get_feature_specs(ref)
+        return self.specs[ref]
 
     def lose_track(self, ref: DocRef, why: str) -> None:
         """After a landed write whose new version Claude has not actually read:
@@ -89,6 +106,8 @@ class Context:
 _NO_READ = "read the document first (cad_read) before applying"
 _REFETCHED = ("the write landed, but its new version was fetched separately and may include "
               "edits you have not read; re-read with cad_read before the next write")
+_MIDTREE = ("features after this one may have changed status; "
+            "re-read with cad_read before the next write")
 _NEW_VARIABLE = ("re-read with cad_read before the next write: a variable was just created, "
                  "so the cached feature list no longer matches the document")
 
@@ -172,43 +191,24 @@ def _backstop(ctx: Context, ref: DocRef, expected: str) -> None:
         raise StaleVersion("document version differs from the version last read")
 
 
-@_locked
-def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = False) -> dict:
-    start = _start(ctx)
-    if apply and ref not in ctx.last_read:
-        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
-    based_on: dict = {}
-    try:
-        wanted = referenced_variables(spec)
-        variables: dict[str, float] = {}
-        if wanted:  # no '#variable' reference: the document is not consulted at all
-            fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
-            based_on = {"based_on_version": clean(based, 64)}
-            variables = evaluate_variables(variables_from_features(fl), only=wanted)
-        sketch = parse_sketch_spec(spec, variables)
-        report = analyze(sketch)
-        feature_json = to_feature_json(sketch, name)
-    except StaleVersion:
-        return _reply(ctx, start, False, error=_refusal(ctx, ref))
-    except (SketchSpecError, *_FAILURES) as e:
-        return _reply(ctx, start, False, error=clean(e, 300))
-
-    findings = lint_sketch(spec, report, name)
-    extra = {"dof": report.dof, "findings": [f.to_dict() for f in findings],
-             "not_assessed": [clean(i, 60) for i in report.not_assessed], **based_on}
-    refusals = [f for f in findings if f.level == "refuse"]
-    if refusals:
-        # Dry run or apply: nothing is written while a refuse finding stands.
-        return _reply(ctx, start, False,
-                      error="refused, nothing written: " + "; ".join(
-                          f"{f.code}: {f.message}" for f in refusals), **extra)
-    if not apply:
-        return _reply(ctx, start, False, **extra)
-
+def _apply_feature(ctx: Context, ref: DocRef, start, feature_json: dict, extra: dict,
+                   what: str, *, feature_id: str | None = None) -> dict:
+    """Shared apply path for every feature write (lock already held). `extra` must
+    hold a `findings` list; `what` names the written thing in the regen warning.
+    With `feature_id` the existing feature is updated in place instead of added."""
     try:
         expected = ctx.last_read[ref]
         _backstop(ctx, ref, expected)
-        result = ctx.backend.add_feature(ref, feature_json, expected_microversion=expected)
+        if feature_id is None:
+            result = ctx.backend.add_feature(ref, feature_json, expected_microversion=expected)
+        else:
+            # Decided at the pinned version, before the write: only an update of the
+            # last feature leaves the cached list valid (nothing after it to regenerate).
+            cached = ctx.cache.peek(ref)
+            is_last = (cached is not None and cached.microversion == expected
+                       and bool(cached.features) and cached.features[-1].id == feature_id)
+            result = ctx.backend.update_feature(ref, feature_id, feature_json,
+                                                expected_microversion=expected)
     except PostWriteError as e:
         return _unknown(ctx, start, ref, str(e), **extra)
     except StaleVersion as e:
@@ -220,23 +220,169 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
     # note_write splices our feature into the cached list; that is only sound
     # because every write passes expected_microversion (nothing else changed).
     ctx.reread.pop(ref, None)  # a successful write supersedes any earlier hint
-    if result.exact:
+    # An update reply without the full `parameters` list cannot be spliced: the cache
+    # would keep a stale or partial raw. Treat it like an inexact write and refetch.
+    full_reply = feature_id is None or isinstance(result.feature.raw.get("parameters"), list)
+    if result.exact and full_reply and (feature_id is None or is_last):
         ctx.last_read[ref] = result.microversion
         ctx.cache.note_write(ref, result.microversion, result.feature,
                              expected_microversion=expected)
         extra = dict(extra)
+    elif result.exact and full_reply:
+        ctx.lose_track(ref, _MIDTREE)
+        extra = {**extra, "note": _MIDTREE}
     else:
         ctx.lose_track(ref, _REFETCHED)
         extra = {**extra, "note": _REFETCHED}
     status = clean(result.feature.status, 40)
     done = {**extra, "feature_id": clean(result.feature.id, 64), "status": status}
-    if status != "OK":
-        warning = (f"applied, but regeneration status is {status}: the sketch was written; "
+    if status == "INFO":
+        done["findings"] = [*extra["findings"],
+                            {"level": "warn", "code": "REGEN_INFO",
+                             "message": f"applied; {what} regenerated, and Onshape attached an "
+                                        "information message (for a hole, usually that its size is "
+                                        "not a standard table size); check it in Onshape if that is "
+                                        "unexpected"}]
+    elif status != "OK":
+        warning = (f"applied, but regeneration status is {status}: {what} was written; "
                    "inspect and fix it, or delete it")
         done["warning"] = warning
         done["findings"] = [*extra["findings"],
                             {"level": "error", "code": "REGEN_STATUS", "message": warning}]
     return _reply(ctx, start, True, **done)
+
+
+@_locked
+def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = False) -> dict:
+    start = _start(ctx)
+    if apply and ref not in ctx.last_read:
+        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
+    try:
+        wanted = referenced_variables(spec)
+        variables: dict[str, float] = {}
+        # Always consulted (the duplicate-name check needs the feature list): free on a
+        # dry run once the last-read version is cached, else one cache read (<= 2 requests).
+        fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
+        based_on = {"based_on_version": clean(based, 64)}
+        if wanted:
+            variables = evaluate_variables(variables_from_features(fl), only=wanted)
+        sketch = parse_sketch_spec(spec, variables)
+        report = analyze(sketch)
+        plane = (plane_param("sketchPlane", sketch.plane, fl)
+                 if isinstance(sketch.plane, dict) else None)
+        feature_json = to_feature_json(sketch, name, plane_param=plane)
+    except StaleVersion:
+        return _reply(ctx, start, False, error=_refusal(ctx, ref))
+    except (SketchSpecError, FeatureSpecError, *_FAILURES) as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+
+    findings = lint_sketch(spec, report, name, fl)
+    extra = {"dof": report.dof, "findings": [f.to_dict() for f in findings],
+             "not_assessed": [clean(i, 60) for i in report.not_assessed], **based_on}
+    refusals = [f for f in findings if f.level == "refuse"]
+    if refusals:
+        # Dry run or apply: nothing is written while a refuse finding stands.
+        return _reply(ctx, start, False,
+                      error="refused, nothing written: " + "; ".join(
+                          f"{f.code}: {f.message}" for f in refusals), **extra)
+    if not apply:
+        return _reply(ctx, start, False, **extra)
+
+    return _apply_feature(ctx, ref, start, feature_json, extra, "the sketch")
+
+
+@_locked
+def cad_feature_add(ctx: Context, ref: DocRef, feature_type: str, name: str, params: dict,
+                    apply: bool = False) -> dict:
+    start = _start(ctx)
+    if not isinstance(name, str) or not 1 <= len(name) <= 64 or not name.isprintable():
+        return _reply(ctx, start, False,
+                      error="invalid name: must be 1-64 printable characters")
+    if apply and ref not in ctx.last_read:
+        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
+    try:
+        specs = ctx.feature_specs(ref)
+        fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
+    except StaleVersion:
+        return _reply(ctx, start, False, error=_refusal(ctx, ref))
+    except _FAILURES as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+
+    spec_by_type = {s.type: s for s in specs}
+    prepared = prepare(spec_by_type, feature_type, params, fl, mode="add")
+    findings = list(prepared.findings)
+    spec = spec_by_type.get(feature_type) if isinstance(feature_type, str) else None
+    if spec is not None:  # no native spec: prepare's refusal is the whole story
+        findings += lint_generic(feature_type, name, params, spec, fl, mode="add",
+                                 defaults=prepared.defaults_applied)
+    extra = {"feature_type": clean(feature_type, 60), "name": name, "params": prepared.readable,
+             "defaults_applied": prepared.defaults_applied,
+             "findings": [f.to_dict() for f in findings],
+             "based_on_version": clean(based, 64)}
+    refusals = [f for f in findings if f.level == "refuse"]
+    if refusals:
+        return _reply(ctx, start, False,
+                      error="refused, nothing written: " + "; ".join(
+                          f"{f.code}: {f.message}" for f in refusals), **extra)
+    if not apply:
+        return _reply(ctx, start, False, **extra)
+    return _apply_feature(ctx, ref, start,
+                          _btm_feature(feature_type, name, prepared.parameters), extra,
+                          f"the {clean(spec.name, 60)} feature")
+
+
+@_locked
+def cad_feature_update(ctx: Context, ref: DocRef, feature: str, params: dict,
+                       apply: bool = False) -> dict:
+    start = _start(ctx)
+    if not isinstance(feature, str) or not feature:
+        return _reply(ctx, start, False, error="feature must be a feature name or id")
+    if not isinstance(params, dict) or not params:
+        return _reply(ctx, start, False, error="params is empty: name the parameters to change")
+    if apply and ref not in ctx.last_read:
+        return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
+    try:
+        specs = ctx.feature_specs(ref)
+        fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
+    except StaleVersion:
+        return _reply(ctx, start, False, error=_refusal(ctx, ref))
+    except _FAILURES as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    try:
+        f = find_feature(fl, feature)
+    except ValueError as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    if not f.raw:
+        return _reply(ctx, start, False,
+                      error="no full copy of this feature; re-read with cad_read first")
+
+    namespace = f.raw.get("namespace")
+    if isinstance(namespace, str) and namespace:  # live custom features carry it apart from featureType
+        return _reply(ctx, start, False, error=(
+            f"refused, nothing written: CUSTOM_FEATURE: {clean(f.type)} is a custom (FeatureScript) "
+            "feature; generic writes support native types only"))
+    spec_by_type = {s.type: s for s in specs}
+    index = fl.features.index(f)
+    prepared = prepare(spec_by_type, f.type, params, fl, mode="update", self_index=index,
+                       current_raw=f.raw)
+    findings = list(prepared.findings)
+    spec = spec_by_type.get(f.type)
+    if spec is not None and f.type not in TYPED_TOOL_REQUIRED:
+        findings += lint_generic(f.type, None, params, spec, fl, mode="update")
+    extra = {"feature": clean(f.name), "feature_id": clean(f.id, 64), "changes": [],
+             "findings": [x.to_dict() for x in findings], "based_on_version": clean(based, 64)}
+    refusals = [x for x in findings if x.level == "refuse"]
+    if refusals:
+        return _reply(ctx, start, False,
+                      error="refused, nothing written: " + "; ".join(
+                          f"{x.code}: {x.message}" for x in refusals), **extra)
+    new_raw, changes = merge(f.raw, prepared.parameters)
+    extra["changes"] = changes
+    if not apply:
+        return _reply(ctx, start, False, **extra)
+    new_raw.setdefault("featureId", f.id)
+    return _apply_feature(ctx, ref, start, new_raw, extra,
+                          f"the {clean(spec.name, 60)} feature", feature_id=f.id)
 
 
 @_locked
@@ -279,6 +425,12 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     try:
         expected = ctx.last_read[ref]
         _backstop(ctx, ref, expected)
+        # Decided at the pinned version, before the write (as in _apply_feature): only
+        # an update of the last feature leaves the cached list valid.
+        cached = ctx.cache.peek(ref)
+        is_last = (existing is not None and cached is not None
+                   and cached.microversion == expected and bool(cached.features)
+                   and cached.features[-1].id == existing.id)
         result = ctx.backend.set_variable(ref, name, expression,
                                           expected_microversion=expected,
                                           feature_id=existing.id if existing else None)
@@ -293,7 +445,12 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     status = clean(result.feature.status, 40)
     if status:  # "" means the backend did not report a regeneration status
         extra["status"] = status
-        if status != "OK":
+        if status == "INFO":
+            extra["findings"] = [*findings, {"level": "warn", "code": "REGEN_INFO",
+                                             "message": "applied; the variable feature regenerated, "
+                                                        "and Onshape attached an information message; "
+                                                        "check it in Onshape if that is unexpected"}]
+        elif status != "OK":
             warning = (f"applied, but the variable feature's regeneration status is {status}: "
                        "the variable was written; inspect and fix it")
             extra["warning"] = warning
@@ -304,8 +461,11 @@ def cad_variable(ctx: Context, ref: DocRef, name: str, expression: str, apply: b
     if not result.exact:
         ctx.lose_track(ref, _REFETCHED)
         return _reply(ctx, start, True, **extra, note=_REFETCHED)
-    new_mv = result.microversion
     ctx.reread.pop(ref, None)
+    if existing and not is_last:  # later features may have regenerated; the cache can't know
+        ctx.lose_track(ref, _MIDTREE)
+        return _reply(ctx, start, True, **extra, note=_MIDTREE)
+    new_mv = result.microversion
     ctx.last_read[ref] = new_mv
     # An updated variable keeps its feature id, so the cache can be spliced; a new
     # one has an unknown id, so the entry is dropped (the next write needs cad_read).
@@ -355,3 +515,40 @@ def cad_read(ctx: Context, ref: DocRef) -> str:
     if n == _UNAVAILABLE:
         return f"{body}\nrequests used: unavailable (ledger unreadable), budget left: unavailable"
     return f"{body}\nrequests used: {n}, budget left: {left}"
+
+
+@_locked
+def cad_specs(ctx: Context, ref: DocRef, feature_type: str | None = None) -> dict:
+    """Native feature types (index) or one type's parameters. 1 request the first
+    time per document, then 0. Never writes."""
+    start = _start(ctx)
+    try:
+        specs = ctx.feature_specs(ref)
+    except _FAILURES as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    if feature_type is None:
+        return _reply(ctx, start, False, specs=render_spec_index(specs))
+    hit = next((s for s in specs if s.type == feature_type), None)
+    if hit is None:
+        close = difflib.get_close_matches(str(feature_type), [s.type for s in specs], n=5, cutoff=0.4)
+        hint = (f"close native types: {', '.join(clean(c, 60) for c in close)}" if close
+                else "call cad_specs without feature_type for the list")
+        return _reply(ctx, start, False, error=(
+            f"no native feature type {clean(feature_type, 60)!r} (custom FeatureScript "
+            f"features have no spec here); {hint}"))
+    return _reply(ctx, start, False, specs=render_spec(hit))
+
+
+@_locked
+def cad_inspect(ctx: Context, ref: DocRef, feature: str) -> dict:
+    """Every parameter of one feature, by name or id. 0 requests after a cad_read;
+    specs label the parameters only if cad_specs already fetched them."""
+    start = _start(ctx)
+    try:
+        fl, _ = ctx.snapshot(ref)
+        f = find_feature(fl, feature)
+    except (StaleVersion, ValueError, *_FAILURES) as e:
+        return _reply(ctx, start, False, error=clean(e, 300))
+    cached = ctx.specs.get(ref)
+    spec = next((s for s in cached or [] if s.type == f.type), None)
+    return _reply(ctx, start, False, feature=render_feature(f, spec, fl))

@@ -7,7 +7,8 @@ from collections.abc import MutableMapping
 
 from ..budget import Ledger
 from ..docref import DocRef
-from ..model import Feature, FeatureList, Variable, WriteResult
+from ..generic.specs import FeatureSpec, parse_feature_specs
+from ..model import Feature, FeatureList, Variable, WriteResult, flatten_params
 from ..variables import (VARIABLE_FEATURE_TYPE, find_variable, make_variable_feature,
                          variables_from_features)
 from .base import StaleVersion
@@ -69,6 +70,12 @@ class FakeBackend:
         self.ledger = ledger
         self.calls: Counter[str] = Counter()
         self._docs: dict[DocRef, _Doc] = {}
+        self.next_status: str | None = None
+        # Raw featurespecs response served by get_feature_specs (tests assign a fixture).
+        self.specs_json: dict = {"featureSpecs": []}
+        # Deep copy of the feature_json most recently passed to add_feature.
+        self.last_feature_json: dict | None = None
+        self.find_results: dict[str, tuple[int, list[str]]] = {}
 
     def _doc(self, ref: DocRef) -> _Doc:
         return self._docs.setdefault(ref, _Doc())
@@ -97,22 +104,72 @@ class FakeBackend:
         d = self._doc(ref)
         return FeatureList(self._mv(d), copy.deepcopy(d.features))
 
+    def eval_featurescript(self, ref: DocRef, script: str) -> dict:
+        return self.eval_featurescript_versioned(ref, script)[0]
+
+    def eval_featurescript_versioned(self, ref: DocRef, script: str) -> tuple[dict, str | None]:
+        """Evaluates against the document's current version, like Onshape."""
+        self._enter("eval_featurescript")
+        count, cents = next((v for k, v in self.find_results.items() if k in script), (0, []))
+        pre = "com.belmonttech.serialize.fsvalue."
+        return ({"btType": pre + "BTFSValueArray", "typeTag": "",
+                 "value": [{"btType": pre + "BTFSValueString", "typeTag": "", "value": v}
+                           for v in [str(count), *cents]]}, self._mv(self._doc(ref)))
+
     def get_variables(self, ref: DocRef) -> list[Variable]:
         self._enter("get_variables")
         return variables_from_features(FeatureList("", self._doc(ref).features))
+
+    def get_feature_specs(self, ref: DocRef) -> list[FeatureSpec]:
+        self._enter("get_feature_specs")
+        return parse_feature_specs(self.specs_json)
 
     def add_feature(self, ref: DocRef, feature_json: dict, expected_microversion: str) -> WriteResult:
         self._enter("add_feature")
         d = self._doc(ref)
         self._check(d, expected_microversion)
+        self.last_feature_json = copy.deepcopy(feature_json)
+        parameters = feature_json.get("parameters")
+        status = self.next_status or feature_json.get("status", "OK")
+        self.next_status = None
+        new_id = d.new_id()
         feat = Feature(
-            id=d.new_id(),
-            type=feature_json.get("type") or feature_json.get("featureType") or feature_json.get("btType") or "",
+            id=new_id,
+            type=feature_json.get("featureType") or feature_json.get("type") or feature_json.get("btType") or "",
             name=feature_json.get("name", ""),
-            status=feature_json.get("status", "OK"),
-            params=copy.deepcopy(feature_json.get("params", {})),
+            status=status,
+            params=(flatten_params(parameters) if isinstance(parameters, list)
+                    else copy.deepcopy(feature_json.get("params", {}))),
+            raw=({**copy.deepcopy(feature_json), "featureId": new_id}
+                 if isinstance(parameters, list) else {}),
         )
         d.features.append(feat)
+        d.version += 1
+        return WriteResult(copy.deepcopy(feat), self._mv(d))
+
+    def update_feature(self, ref: DocRef, feature_id: str, feature_json: dict,
+                       expected_microversion: str) -> WriteResult:
+        self._enter("update_feature")
+        d = self._doc(ref)
+        self._check(d, expected_microversion)
+        index = next((i for i, f in enumerate(d.features) if f.id == feature_id), None)
+        if index is None:
+            raise RuntimeError("no such feature")
+        self.last_feature_json = copy.deepcopy(feature_json)
+        parameters = feature_json.get("parameters")
+        status = self.next_status or feature_json.get("status", "OK")
+        self.next_status = None
+        feat = Feature(
+            id=feature_id,
+            type=feature_json.get("featureType") or feature_json.get("type") or feature_json.get("btType") or "",
+            name=feature_json.get("name", ""),
+            status=status,
+            params=(flatten_params(parameters) if isinstance(parameters, list)
+                    else copy.deepcopy(feature_json.get("params", {}))),
+            raw=({**copy.deepcopy(feature_json), "featureId": feature_id}
+                 if isinstance(parameters, list) else {}),
+        )
+        d.features[index] = feat
         d.version += 1
         return WriteResult(copy.deepcopy(feat), self._mv(d))
 

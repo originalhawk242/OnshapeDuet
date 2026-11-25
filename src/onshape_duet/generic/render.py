@@ -1,0 +1,147 @@
+"""Plain-text rendering of feature specs and of existing features' raw parameters.
+Every document- or Onshape-supplied string passes through `clean`."""
+from __future__ import annotations
+
+from ..model import Feature, FeatureList
+from ..textsafe import clean
+from .specs import FeatureSpec, ParamSpec
+
+_MAX = 200
+
+
+def render_spec_index(specs: list[FeatureSpec]) -> str:
+    return "\n".join(f"{clean(s.type, 60)}: {clean(s.name, 60)}" for s in specs)
+
+
+def _spec_line(p: ParamSpec, indent: str) -> list[str]:
+    line = f"{indent}{clean(p.id, 60)} ({clean(p.name, 60)}) {clean(p.kind, 30)}"
+    if p.kind == "quantity" and p.units:
+        line += f" {clean(p.units, 20)}"
+    if p.kind == "enum" and p.options:
+        line += " " + "|".join(clean(o, 40) for o in p.options)
+    if p.default is not None:
+        line += f" default={clean(p.default, 60)}"
+    if p.conditional:
+        line += f" only when {clean(p.condition, 80)}"
+    lines = [line]
+    for item in p.items:
+        lines.extend(_spec_line(item, indent + "  "))
+    return lines
+
+
+def render_spec(spec: FeatureSpec) -> str:
+    head = f"{clean(spec.type, 60)}: {clean(spec.name, 60)}"
+    return "\n".join([head, *(l for p in spec.params for l in _spec_line(p, ""))])
+
+
+_COMPRESSED = "selection compressed by Onshape (not readable here; change it in Onshape)"
+
+
+def _query_text(qs: str) -> str:
+    # Onshape rewrites a selection as an opaque qCompressed(...) blob after an update (live G4)
+    if qs.strip().removeprefix("query=").startswith("qCompressed("):
+        return _COMPRESSED
+    return clean(qs, _MAX)
+
+
+def _query(p: dict) -> str:
+    queries = [q for q in p.get("queries") or [] if isinstance(q, dict)]
+    texts = [_query_text(q["queryString"]) for q in queries
+             if isinstance(q.get("queryString"), str) and q["queryString"].strip()]
+    strings = [t for t in texts if t != _COMPRESSED]
+    packed = len(texts) - len(strings)
+    if packed == 1:
+        strings.append(_COMPRESSED)
+    elif packed:
+        strings.append(f"{packed} selections compressed by Onshape (not readable here; "
+                       "change them in Onshape)")
+    ids = sum(len(q["deterministicIds"]) for q in queries
+              if not q.get("queryString") and isinstance(q.get("deterministicIds"), list))
+    if not strings and not ids:
+        return "(none)"
+    parts = strings + ([f"{ids} geometry ids (set in Onshape)"] if ids else [])
+    return "; ".join(parts)
+
+
+def _array(p: dict, fl: FeatureList | None) -> str:
+    out = []
+    for i, item in enumerate(p.get("items") or []):
+        subs = item.get("parameters") if isinstance(item, dict) else None
+        body = ", ".join(f"{clean(s.get('parameterId', '?'), 60)}={_flat(param_value(s, fl))}"
+                         for s in subs or [] if isinstance(s, dict))
+        out.append(f"  [{i}] {body}")
+    return "\n".join(out)
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def param_value(p: dict, fl: FeatureList | None = None) -> str:
+    """One raw BTM parameter as readable text (arrays: one `  [i] ...` line per item).
+    `fl`, when given, turns feature-list ids into feature names."""
+    if not isinstance(p, dict):
+        return "<?>"
+    bt = p.get("btType")
+    bt = bt if isinstance(bt, str) else ""
+    if bt.startswith("BTMParameterQuantity"):
+        v = p.get("expression")
+        return clean(v if isinstance(v, str) else p.get("value", ""), _MAX)
+    if bt.startswith(("BTMParameterEnum", "BTMParameterString", "BTMParameterBoolean")):
+        v = p.get("value")
+        return "true" if v is True else "false" if v is False else clean(v if v is not None else "", _MAX)
+    if bt.startswith("BTMParameterQuery"):
+        return _query(p)
+    if bt.startswith("BTMParameterFeatureList"):
+        if fl is not None:
+            return _feature_names(p, fl)
+        ids = p.get("featureIds")
+        if not isinstance(ids, list):
+            return ""
+        return ", ".join(clean(i, 64) for i in ids) if ids else "(none)"
+    if bt.startswith("BTMParameterArray"):
+        return _array(p, fl)
+    if bt.startswith("BTMParameterLookupTablePath"):
+        return _lookup(p)
+    return f"<{clean(bt or '?', 60)}>"
+
+
+def _lookup(p: dict) -> str:
+    """A lookup table (e.g. hole size) as its value: {size: 5, holeType: Drilled}."""
+    v = p.get("value")
+    pairs = v.items() if isinstance(v, dict) else ()
+    return clean("{" + ", ".join(f"{clean(k, 60)}: {clean(x, 60)}" for k, x in pairs) + "}", _MAX)
+
+
+def _feature_names(p: dict, fl: FeatureList) -> str:
+    ids = p.get("featureIds")
+    if not isinstance(ids, list):
+        return ""
+    if not ids:
+        return "(none)"
+    names = {x.id: x.name for x in fl.features}
+    return ", ".join(clean(names[i]) if isinstance(i, str) and i in names
+                     else f"{clean(i, 64)} (not in the feature list)" for i in ids)
+
+
+def render_feature(f: Feature, spec: FeatureSpec | None, fl: FeatureList | None = None) -> str:
+    """`fl`, when given, turns feature-list ids into feature names."""
+    lines = [f"{clean(f.name)} [{clean(f.type, 60)}] {clean(f.status, 40)} {clean(f.id, 64)}"]
+    params = f.raw.get("parameters") if isinstance(f.raw, dict) else None
+    for p in params if isinstance(params, list) else []:
+        if not isinstance(p, dict):
+            continue
+        pid = clean(p.get("parameterId", "?"), 60)
+        ps = spec.param(p["parameterId"]) if spec and isinstance(p.get("parameterId"), str) else None
+        label = f"{pid} ({clean(ps.name, 60)})" if ps and ps.name else pid
+        bt = p.get("btType") if isinstance(p.get("btType"), str) else ""
+        value = param_value(p, fl)
+        is_array = bt.startswith("BTMParameterArray")
+        if is_array and not value.strip():
+            lines.append(f"  {label}: (no items)")
+        elif is_array or "\n" in value:
+            lines.append(f"  {label}:")
+            lines.extend(f"  {l}" for l in value.splitlines())
+        else:
+            lines.append(f"  {label}: {value}")
+    return "\n".join(lines)

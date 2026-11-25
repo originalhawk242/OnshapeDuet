@@ -63,7 +63,7 @@ class Dimension:
 
 @dataclass
 class Sketch:
-    plane: str
+    plane: str | dict  # standard name, or a PlaneRef dict validated by features.refs
     entities: dict[str, Entity] = field(default_factory=dict)
     constraints: list[Constraint] = field(default_factory=list)
     dimensions: list[Dimension] = field(default_factory=list)
@@ -193,7 +193,7 @@ def parse_sketch_spec(spec: dict, variables: dict[str, float]) -> Sketch:
     if not isinstance(spec, dict):
         raise SketchSpecError("sketch spec must be an object")
     plane = spec.get("plane", "Front")
-    if not isinstance(plane, str) or plane not in PLANE_NAMES:
+    if not isinstance(plane, dict) and (not isinstance(plane, str) or plane not in PLANE_NAMES):
         raise SketchSpecError(f"plane must be one of {', '.join(PLANE_NAMES)}, got {plane!r}")
     sketch = Sketch(plane=plane)
     for key in ("entities", "constraints", "dimensions"):
