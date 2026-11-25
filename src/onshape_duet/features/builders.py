@@ -23,6 +23,10 @@ class Built:
     summary: dict
 
 
+# Shown to the agent (summary["note"]) for mappings no live run has confirmed yet: a wrong
+# mapping gives wrong geometry that still regenerates OK, so no REGEN_STATUS would fire.
+UNVERIFIED_LIVE = "unverified against live Onshape: check the result in Onshape after applying"
+
 _OPERATIONS = {"new": "NEW", "add": "ADD", "remove": "REMOVE", "intersect": "INTERSECT"}
 _ENDS = ("blind", "symmetric", "through_all")
 
@@ -183,7 +187,8 @@ def build_shell(fl: FeatureList, *, faces, thickness, outward: bool = False) -> 
     # isHollow and parts are deliberately not emitted.
     params = [query, p_qty("thickness", t), p_bool("oppositeDirection", outward)]
     return Built(feature("shell", "", params), [t],
-                 {"faces": _clean_deep(faces), "thickness": t.expr, "outward": outward})
+                 {"faces": _clean_deep(faces), "thickness": t.expr, "outward": outward,
+                  "note": f"shell direction (outward): {UNVERIFIED_LIVE}"})
 
 
 _BOOLEAN_OPS = {"union": "UNION", "subtract": "SUBTRACTION", "intersect": "INTERSECTION"}
@@ -302,5 +307,6 @@ def build_hole(fl: FeatureList, *, sketch: str, points, diameter, depth=None,
                    p_qty("holeDepth", dep), p_qty("holeDepthV3", dep)]
     params.append(p_bool("oppositeDirection", False))
     summary = {"sketch": clean(sketch, 100), "points": ids, "diameter": d.expr,
-               "depth": values[1].expr if depth is not None else None}
+               "depth": values[1].expr if depth is not None else None,
+               "note": f"hole settings (LEGACY/V2/V3 variants): {UNVERIFIED_LIVE}"}
     return Built(feature("hole", "", params), values, summary)

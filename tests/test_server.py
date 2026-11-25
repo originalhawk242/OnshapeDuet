@@ -421,3 +421,31 @@ def test_hole_diameter_rejects_bool_at_mcp_layer(tmp_path):
         res = e
     assert "applied" not in repr(res) or "error" in repr(res)
     assert sum(backend.calls.values()) == 0
+
+
+# --- final review I1/I2/M7: docstrings the agent sees ---
+
+def _descriptions(tmp_path) -> dict:
+    ctx, _, _ = make(tmp_path)
+    return {t.name: t.description or "" for t in asyncio.run(server.build_server(ctx).list_tools())}
+
+
+def test_unverified_tools_say_so_in_their_docstrings(tmp_path):
+    d = _descriptions(tmp_path)
+    for tool in ("cad_shell", "cad_hole"):
+        assert "unverified against live Onshape: check the result in Onshape after applying" \
+            in " ".join(d[tool].split()), tool
+
+
+def test_docstring_selector_examples_name_a_body_not_the_sketch(tmp_path):
+    d = _descriptions(tmp_path)
+    for name, text in d.items():
+        assert '"created_by": "Base"' not in text, name
+    for tool in ("cad_fillet", "cad_chamfer", "cad_shell", "cad_boolean", "cad_pattern"):
+        assert '"created_by": "Body"' in d[tool], tool
+
+
+def test_sketch_docstring_describes_planes_and_face_caveat(tmp_path):
+    text = " ".join(_descriptions(tmp_path)["cad_sketch"].split())
+    for part in ('"Front"', '{"plane":', "cap", 'geometry "plane"', "x/y axes", "duplicate"):
+        assert part in text, part

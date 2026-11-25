@@ -51,11 +51,18 @@ def build_server(ctx: Context) -> MCPServer:
 
     @mcp.tool(name="cad_sketch")
     def cad_sketch_tool(url: str, name: str, spec: dict, apply: StrictBool = False) -> dict:
-        """Create a sketch from a spec. DRY RUN IS THE DEFAULT: nothing is written
-        unless apply=True. Show the dry-run result (dof, findings) to the owner,
-        then apply, and read afterwards. Read the document (cad_read) before apply.
-        The lint REFUSES (writes nothing) on conflicts/contradictions in the
-        sketch; WARN findings are advice only."""
+        """Create a sketch from a spec. spec plane: "Front"|"Top"|"Right",
+        {"plane": "<plane feature name>"} (e.g. from cad_plane), or a planar face
+        selector (geometry "plane" or a cap, e.g. {"entity": "face", "created_by":
+        "Body", "cap": "end"}). On a plane feature or a face, the sketch x/y axes and
+        origin come from that plane or face, so horizontal/vertical, signed distances
+        and the DOF check may not mean what you assume: check the result in Onshape.
+        DRY RUN IS THE DEFAULT: nothing is written unless apply=True. Show the dry-run
+        result (dof, findings) to the owner, then apply, and read afterwards. Read the
+        document (cad_read) before apply. The lint REFUSES (writes nothing) on
+        conflicts/contradictions in the sketch or a duplicate feature name; WARN
+        findings are advice only. Costs: a dry run is free once the document was read
+        (else up to 2 requests); apply costs 2 requests (version check + write)."""
         try:
             ref = parse_url(url, ctx.config.base_url)
         except ValueError as e:
@@ -154,7 +161,7 @@ def build_server(ctx: Context) -> MCPServer:
                     radius: StrictFloat | StrictInt | StrictStr,
                     apply: StrictBool = False) -> dict:
         """Round (fillet) the selected edges with a constant circular radius. edges: an edge selector (or a list of them, or a face selector, which
-        selects all of that face's edges), e.g. {"entity": "edge", "created_by": "Base"};
+        selects all of that face's edges), e.g. {"entity": "edge", "created_by": "Body"};
         body selectors are refused. radius: length number (mm), '2 in' or '#variable'. DRY RUN
         IS THE DEFAULT: nothing is written unless apply=True. Show the dry-run result
         (summary, findings) to the owner, then apply, and read afterwards. Read the document
@@ -172,7 +179,7 @@ def build_server(ctx: Context) -> MCPServer:
                     distance: StrictFloat | StrictInt | StrictStr,
                     apply: StrictBool = False) -> dict:
         """Chamfer the selected edges with equal offsets. edges: an edge selector (or a list of them, or a face selector, which
-        selects all of that face's edges), e.g. {"entity": "edge", "created_by": "Base"};
+        selects all of that face's edges), e.g. {"entity": "edge", "created_by": "Body"};
         body selectors are refused. distance: length number (mm), '2 in' or '#variable'. DRY RUN
         IS THE DEFAULT: nothing is written unless apply=True. Show the dry-run result
         (summary, findings) to the owner, then apply, and read afterwards. Read the document
@@ -191,9 +198,11 @@ def build_server(ctx: Context) -> MCPServer:
                        outward: StrictBool = False, apply: StrictBool = False) -> dict:
         """Hollow a solid: remove the selected faces and leave walls of the given thickness.
         faces: a face selector (or a list of them) for the faces to remove, e.g.
-        {"entity": "face", "created_by": "Base", "cap": "end"}; edge and body selectors are
+        {"entity": "face", "created_by": "Body", "cap": "end"}; edge and body selectors are
         refused. thickness: length number (mm), '2 in' or '#variable'. outward: grow the wall
-        outward instead of inward (default false). DRY RUN IS THE DEFAULT: nothing is written
+        outward instead of inward (default false). The outward mapping is unverified against
+        live Onshape: check the result in Onshape after applying. DRY RUN IS THE DEFAULT:
+        nothing is written
         unless apply=True. Show the dry-run result (summary, findings) to the owner, then apply,
         and read afterwards. Read the document (cad_read) before apply; a stale write is
         refused. Costs: a dry run is free once the document was read; apply costs 2 requests
@@ -210,7 +219,7 @@ def build_server(ctx: Context) -> MCPServer:
                          apply: StrictBool = False) -> dict:
         """Combine bodies. operation: union (merge the tools), subtract (cut the tools out of
         targets) or intersect (keep the common volume of the tools). tools/targets: body
-        selectors (or lists of them), e.g. {"entity": "body", "created_by": "Base"}; other
+        selectors (or lists of them), e.g. {"entity": "body", "created_by": "Body"}; other
         entities are refused. targets is required for subtract and refused otherwise.
         keep_tools: keep the tool bodies afterwards (default false). DRY RUN IS THE DEFAULT:
         nothing is written unless apply=True. Show the dry-run result (summary, findings) to the
@@ -234,7 +243,7 @@ def build_server(ctx: Context) -> MCPServer:
         names. count: number of instances including the original (2 to 10000). linear needs
         direction (an edge or face selector) and spacing (length number in mm, '2 in' or
         '#variable'); circular needs axis (an edge selector) and takes angle (degrees, default
-        360, spread equally). Selectors look like {"entity": "edge", "created_by": "Base"}.
+        360, spread equally). Selectors look like {"entity": "edge", "created_by": "Body"}.
         DRY RUN IS THE DEFAULT: nothing is written unless apply=True. Show the dry-run result
         (summary, findings) to the owner, then apply, and read afterwards. Read the document
         (cad_read) before apply; a stale write is refused. Costs: a dry run is free once the
@@ -271,7 +280,9 @@ def build_server(ctx: Context) -> MCPServer:
         """Drill simple holes at sketch points. sketch: name of an existing sketch. points: 1 to
         50 sketch point ids in that sketch (like 'c1.center'). diameter: length number in mm,
         '2 in' or '#variable'. depth: omit for a through hole, or give a length for a blind hole.
-        style: only 'simple' (counterbore and countersink are deferred). DRY RUN IS THE DEFAULT:
+        style: only 'simple' (counterbore and countersink are deferred). The hole settings
+        sent are unverified against live Onshape: check the result in Onshape after applying.
+        points must be entity ids of a sketch made with cad_sketch. DRY RUN IS THE DEFAULT:
         nothing is written unless apply=True. Show the dry-run result (summary, findings) to the
         owner, then apply, and read afterwards. Read the document (cad_read) before apply; a
         stale write is refused. Costs: a dry run is free once the document was read; apply costs

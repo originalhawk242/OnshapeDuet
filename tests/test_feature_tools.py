@@ -206,3 +206,25 @@ def test_hole_dry_run(with_sketch):
     assert out["applied"] is False and out["feature_type"] == "hole"
     assert out["summary"]["points"] == ["p1"] and out["summary"]["diameter"] == "4 mm"
     assert "points" in cad_hole(ctx, REF, "Hole2", "Base", ['x"'], 4)["error"]
+
+
+# --- final review I1: unverified live mappings are visible to the agent ---
+
+def test_shell_and_hole_replies_carry_unverified_note(with_sketch):
+    from onshape_duet.feature_tools import cad_hole, cad_shell
+    from onshape_duet.features.builders import UNVERIFIED_LIVE
+    ctx, backend, _ = with_sketch
+    face = {"entity": "face", "created_by": "Base", "cap": "end"}
+    for call in (lambda a: cad_shell(ctx, REF, "Hollow", face, 2, apply=a),
+                 lambda a: cad_hole(ctx, REF, "Drill", "Base", ["c.center"], 4, apply=a)):
+        dry = call(False)
+        assert dry["applied"] is False and UNVERIFIED_LIVE in dry["summary"]["note"]
+        done = call(True)
+        assert done["applied"] is True and UNVERIFIED_LIVE in done["summary"]["note"]
+    assert "unverified against live Onshape: check the result in Onshape after applying" \
+        == UNVERIFIED_LIVE
+
+
+def test_verified_tools_carry_no_unverified_note(with_sketch):
+    ctx, backend, _ = with_sketch
+    assert "note" not in cad_extrude(ctx, REF, "Body", "Base", 7)["summary"]

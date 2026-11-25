@@ -399,7 +399,7 @@ def test_pattern_features_deduplicated_in_order():
 
 
 # ---- cad_hole builder ----
-from onshape_duet.features.builders import build_hole  # noqa: E402
+from onshape_duet.features.builders import UNVERIFIED_LIVE, build_hole  # noqa: E402
 
 
 def _loc(b):
@@ -422,7 +422,8 @@ def test_build_hole_through_matches_spec():
     assert _loc(b) == ['query=sketchEntityQuery(makeId("Fabc"), EntityType.VERTEX, "p1");',
                        'query=sketchEntityQuery(makeId("Fabc"), EntityType.VERTEX, "p2");']
     assert ps["scope"]["queries"][0]["queryString"] == "query=qAllModifiableSolidBodies();"
-    assert b.summary == {"sketch": "Base", "points": ["p1", "p2"], "diameter": "5 mm", "depth": None}
+    assert b.summary == {"sketch": "Base", "points": ["p1", "p2"], "diameter": "5 mm", "depth": None,
+                         "note": f"hole settings (LEGACY/V2/V3 variants): {UNVERIFIED_LIVE}"}
     assert "Fabc" not in repr(b.summary)
 
 

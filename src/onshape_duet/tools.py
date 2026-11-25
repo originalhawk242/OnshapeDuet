@@ -250,17 +250,15 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
     start = _start(ctx)
     if apply and ref not in ctx.last_read:
         return _reply(ctx, start, False, error=ctx.reread.get(ref) or _NO_READ)
-    based_on: dict = {}
     try:
         wanted = referenced_variables(spec)
         variables: dict[str, float] = {}
-        plane_ref = spec.get("plane") if isinstance(spec, dict) else None
-        fl = None
-        if wanted or isinstance(plane_ref, dict):  # else the document is not consulted at all
-            fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
-            based_on = {"based_on_version": clean(based, 64)}
-            if wanted:
-                variables = evaluate_variables(variables_from_features(fl), only=wanted)
+        # Always consulted (the duplicate-name check needs the feature list): free on a
+        # dry run once the last-read version is cached, else one cache read (<= 2 requests).
+        fl, based = ctx.snapshot_for_apply(ref) if apply else ctx.snapshot(ref)
+        based_on = {"based_on_version": clean(based, 64)}
+        if wanted:
+            variables = evaluate_variables(variables_from_features(fl), only=wanted)
         sketch = parse_sketch_spec(spec, variables)
         report = analyze(sketch)
         plane = (plane_param("sketchPlane", sketch.plane, fl)
@@ -271,7 +269,7 @@ def cad_sketch(ctx: Context, ref: DocRef, name: str, spec: dict, apply: bool = F
     except (SketchSpecError, FeatureSpecError, *_FAILURES) as e:
         return _reply(ctx, start, False, error=clean(e, 300))
 
-    findings = lint_sketch(spec, report, name)
+    findings = lint_sketch(spec, report, name, fl)
     extra = {"dof": report.dof, "findings": [f.to_dict() for f in findings],
              "not_assessed": [clean(i, 60) for i in report.not_assessed], **based_on}
     refusals = [f for f in findings if f.level == "refuse"]

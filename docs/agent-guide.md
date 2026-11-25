@@ -99,7 +99,11 @@ The selection is compiled to an Onshape query stored in the feature (`queryStrin
 
 **Costs:** a dry run is 0 requests when the last-read version is cached, else at most 2. `cad_find` is 0 requests if the document was read; `evaluate=True` adds 1 and returns the match count and centroids in mm. Apply is 2 requests (version check + write), or 3 when the write reply names no new version.
 
-**Lint codes:** `DEFAULT_NAME` (warn, names like `Extrude 1`), `DUPLICATE_NAME` (refuse), `UNKNOWN_VARIABLE` (refuse), `NON_LENGTH_VARIABLE` (refuse), `MAGIC_NUMBER` (warn).
+**Unverified live:** the `cad_shell` outward direction and the `cad_hole` settings have not been confirmed against live Onshape. A wrong mapping still regenerates OK, so their replies carry `summary.note`; after applying, check the result in Onshape with the owner.
+
+**Sketches on a plane feature or a face:** the sketch's x/y axes and origin come from that plane or face, so horizontal/vertical, signed distances and the DOF check may not mean what you assume. Check the result in Onshape.
+
+**Lint codes:** `DEFAULT_NAME` (warn, names like `Extrude 1`), `DUPLICATE_NAME` (refuse; `cad_sketch` too), `UNKNOWN_VARIABLE` (refuse), `NON_LENGTH_VARIABLE` (refuse), `MAGIC_NUMBER` (warn).
 
 **Not supported:** counterbore and countersink holes, concave/convex edge selection, angle and count variables, part patterns.
 

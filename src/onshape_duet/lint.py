@@ -46,9 +46,23 @@ def _dimensions(spec: dict) -> list[dict]:
     return [d for d in dims if isinstance(d, dict)]
 
 
-def lint_sketch(spec: dict, report: DofReport, name: str) -> list[Finding]:
+def duplicate_name(name: str, fl: FeatureList) -> Finding | None:
+    """REFUSE a name another (non-variable) feature already has: every later typed tool
+    would refuse that name as ambiguous."""
+    if any(f.type != VARIABLE_FEATURE_TYPE and f.name == name for f in fl.features):
+        return Finding("refuse", "DUPLICATE_NAME",
+                       f"a feature named {clean(name)!r} already exists; references "
+                       "are by name, so choose a unique name")
+    return None
+
+
+def lint_sketch(spec: dict, report: DofReport, name: str,
+                fl: FeatureList | None = None) -> list[Finding]:
+    """`fl` (the document's feature list) enables the DUPLICATE_NAME check."""
     out: list[Finding] = []
     dims = _dimensions(spec)
+    if fl is not None and (dup := duplicate_name(name, fl)) is not None:
+        out.append(dup)
 
     if report.not_assessed:
         out.append(Finding("refuse", "SKETCH_UNSUPPORTED_ENTITY",
@@ -100,10 +114,8 @@ def lint_feature(name: str, values: list[Value], fl: FeatureList) -> list[Findin
         out.append(Finding("warn", "DEFAULT_NAME",
                            f"name {clean(name)!r} looks like a default; give it a "
                            "descriptive name"))
-    if any(f.type != VARIABLE_FEATURE_TYPE and f.name == name for f in fl.features):
-        out.append(Finding("refuse", "DUPLICATE_NAME",
-                           f"a feature named {clean(name)!r} already exists; references "
-                           "are by name, so choose a unique name"))
+    if (dup := duplicate_name(name, fl)) is not None:
+        out.append(dup)
 
     for v in values:
         if v.var is None:

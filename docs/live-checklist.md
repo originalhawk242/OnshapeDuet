@@ -109,7 +109,8 @@ feature). Record the request count of every step.
 ## Request counts (record what actually happens)
 
 Expected: `cad_read` on a fresh document 2, unchanged 1; dry runs after a read 0 (a
-sketch dry run that references no `#variable` is always free); apply 2 with the backstop (version check + write; +1 if the
+dry run with nothing cached costs up to 2, sketches included: the duplicate-name check
+needs the feature list); apply 2 with the backstop (version check + write; +1 if the
 write reply lacks a new version, after which a `cad_read` is required before the next
 write), 1 once the backstop is removed.
 
@@ -225,3 +226,7 @@ Captured from the foundation test document with `scripts/capture_features.py` (6
 - [ ] Selections follow upstream edits: change a variable (e.g. `t`) and confirm queryString selections re-evaluate and every dependent feature regenerates.
 - [ ] Fillet and chamfer edge `queryString` persistence (extrude is verified; these are not yet).
 - [ ] `serializationVersion`: the code sends 1.1.23, live reports 1.2.10. Check nothing depends on the difference.
+- [ ] Sketch on an offset plane or a face: the sketch x/y axes and origin come from that plane or face, so
+  horizontal/vertical constraints, signed distances and the local DOF check may not mean what the agent assumes.
+  Check where a sketch on a `cad_plane` plane and on an extrude cap actually lands (the `cad_sketch` docstring
+  warns the agent).
