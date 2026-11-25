@@ -113,23 +113,28 @@ def prepare(spec_by_type: dict[str, FeatureSpec], feature_type: str, params: dic
                     "warn", "DEFAULT_NOT_SENT",
                     f"{clean(p.id)} {why}, so it is not sent; Onshape does not fill it in, so "
                     "set it explicitly if the feature needs it"))
-        empty = [p.id for p in spec.params
-                 if p.id not in params and p.kind in ("query", "feature_list")
-                 and _may_be_shown(p, params, prep.defaults_applied)]
-        if empty:
+        shown = {p.id: _may_be_shown(p, params, prep.defaults_applied) for p in spec.params
+                 if p.id not in params and p.kind in ("query", "feature_list")}
+        sure = [clean(k) for k, v in shown.items() if v is True]
+        maybe = [clean(k) for k, v in shown.items() if v is None]
+        if sure or maybe:
+            parts = ([f"shown in this feature: {', '.join(sure)}"] if sure else []) + \
+                    ([f"shown under conditions not checked here: {', '.join(maybe)}"] if maybe else [])
             prep.findings.append(Finding(
                 "warn", "EMPTY_SELECTION",
-                f"sent with nothing selected: {', '.join(clean(e) for e in empty)}; name the ones "
-                "this feature needs, or it may fail to regenerate"))
+                f"sent with nothing selected ({'; '.join(parts)}); name the ones this feature "
+                "needs, or it may fail to regenerate"))
     return prep
 
 
-def _may_be_shown(p, params: dict, defaults: dict) -> bool:
-    """True unless p's simple `X == V` condition is known to be off (complex ones: unknown)."""
+def _may_be_shown(p, params: dict, defaults: dict) -> bool | None:
+    """True if shown, False if p's simple `X == V` condition is off, None if not known."""
     if not p.conditional:
         return True
     head, sep, want = p.condition.partition(" == ")
     if not sep:
-        return True
+        return None
     value = params[head] if head in params else defaults.get(head)
-    return value is None or str(value).lower() == want.lower()
+    if value is None:
+        return None
+    return str(value).lower() == want.lower() or False

@@ -314,3 +314,14 @@ def test_parameter_without_any_default_is_reported():
     notes = [f for f in p.findings if f.code == "DEFAULT_NOT_SENT"]
     assert {m for f in notes for m in ("n", "w") if f.message.startswith(m + " ")} == {"n", "w"}
     assert p.parameters == []
+
+
+def test_empty_selection_splits_known_from_unchecked():
+    p = prepare(SPECS, "cPlane", {"offset": "5 mm"}, FL, mode="add")  # entities: always shown
+    msg = next(f.message for f in p.findings if f.code == "EMPTY_SELECTION")
+    assert "shown in this feature: entities" in msg and "not checked" not in msg
+    # extrude's entities has a compound (Logical) condition: listed as not checked, still named
+    p = prepare(SPECS, "extrude", {"depth": "10 mm"}, FL, mode="add")
+    msg = next(f.message for f in p.findings if f.code == "EMPTY_SELECTION")
+    assert "not checked here: entities," in msg
+    assert param_value({"btType": "BTMParameterFeatureList-1749", "featureIds": []}) == "(none)"

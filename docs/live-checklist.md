@@ -212,6 +212,11 @@ Open generic items:
 - [ ] G3b: re-run G3 live with the defaults fix (expect status OK with only `entities` and `offset` given; ~3 requests).
 - [ ] G6 `N geometry ids (set in Onshape)`: no human-picked (id-only) selection was available; still offline-only.
 - [ ] G7 refusal of a list over human-picked array items (`RAW_GEOMETRY_ID`): no such feature live; unit-tested only.
+- [ ] `EMPTY_SELECTION` / `HIDDEN_PARAM` evaluate only simple `X == V` conditions; most live conditions are
+  `BTParameterVisibilityLogical-178` trees (extrude `entities` among them), so those are listed as not checked.
+  Evaluating Logical trees would cut the noise.
+- [ ] Item-level selections filled empty inside a full array item are listed in `defaults_applied` but not in
+  `EMPTY_SELECTION`.
 - [ ] Why Onshape compresses selections on update, and whether a compressed selection still follows upstream edits
   like our readable queries do.
 

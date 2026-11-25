@@ -96,7 +96,9 @@ def param_value(p: dict, fl: FeatureList | None = None) -> str:
         if fl is not None:
             return _feature_names(p, fl)
         ids = p.get("featureIds")
-        return ", ".join(clean(i, 64) for i in ids) if isinstance(ids, list) else ""
+        if not isinstance(ids, list):
+            return ""
+        return ", ".join(clean(i, 64) for i in ids) if ids else "(none)"
     if bt.startswith("BTMParameterArray"):
         return _array(p, fl)
     return f"<{clean(bt or '?', 60)}>"
