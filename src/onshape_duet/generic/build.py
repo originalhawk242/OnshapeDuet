@@ -92,8 +92,26 @@ def _feature_list(spec: ParamSpec, value: object, fl: FeatureList) -> dict:
     return {"btType": "BTMParameterFeatureList-1749", "parameterId": spec.id, "featureIds": ids}
 
 
+_SCALAR_KINDS = ("quantity", "enum", "boolean", "string")
+
+
+def default_param(spec: ParamSpec) -> dict | None:
+    """The spec's own default as a BTM parameter (a scalar, or a lookup table's default
+    path), or None. Onshape does not fill omitted parameters (live G3), so a new feature or array
+    item sends these explicitly. Queries, feature lists and arrays are never invented."""
+    if spec.lookup_default:
+        return {"btType": "BTMParameterLookupTablePath-1419", "parameterId": spec.id,
+                "namespace": "", "value": dict(spec.lookup_default)}
+    if spec.kind not in _SCALAR_KINDS or spec.default is None:
+        return None
+    try:
+        return build_param(spec, spec.default, FeatureList("", []))
+    except ParamError:
+        return None
+
+
 def _item_params(spec: ParamSpec, item: object, fl: FeatureList,
-                 existing: list | None = None) -> list[dict]:
+                 existing: list | None = None, *, fill_defaults: bool = False) -> list[dict]:
     if not isinstance(item, dict):
         raise _bad(spec, "each item must be a mapping of parameter id to value")
     subs = {s.id: s for s in spec.items}
@@ -104,6 +122,8 @@ def _item_params(spec: ParamSpec, item: object, fl: FeatureList,
                        f"{', '.join(clean(s) for s in subs) or '(none)'}")
         cur = next((p for p in existing or [] if isinstance(p, dict) and p.get("parameterId") == k), None)
         out.append(build_param(subs[k], v, fl, current=cur))
+    if fill_defaults:
+        out.extend(d for s in spec.items if s.id not in item and (d := default_param(s)))
     return out
 
 
@@ -113,7 +133,8 @@ def _array(spec: ParamSpec, value: object, fl: FeatureList, current: dict | None
             raise _bad(spec, "the existing items hold geometry selections that a full list would "
                        "discard; use the items patch form {'items': {'<index>': {...}}}",
                        "RAW_GEOMETRY_ID")
-        items = [{"btType": "BTMArrayParameterItem-1843", "parameters": _item_params(spec, it, fl)}
+        items = [{"btType": "BTMArrayParameterItem-1843",
+                  "parameters": _item_params(spec, it, fl, fill_defaults=True)}
                  for it in value]
         return {"btType": "BTMParameterArray-2025", "parameterId": spec.id, "items": items}
     if not (isinstance(value, dict) and set(value) == {"items"} and isinstance(value["items"], dict)):

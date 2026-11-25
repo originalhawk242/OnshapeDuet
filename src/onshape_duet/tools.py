@@ -550,4 +550,4 @@ def cad_inspect(ctx: Context, ref: DocRef, feature: str) -> dict:
         return _reply(ctx, start, False, error=clean(e, 300))
     cached = ctx.specs.get(ref)
     spec = next((s for s in cached or [] if s.type == f.type), None)
-    return _reply(ctx, start, False, feature=render_feature(f, spec))
+    return _reply(ctx, start, False, feature=render_feature(f, spec, fl))

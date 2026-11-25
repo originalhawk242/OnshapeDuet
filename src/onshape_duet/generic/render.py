@@ -2,7 +2,7 @@
 Every document- or Onshape-supplied string passes through `clean`."""
 from __future__ import annotations
 
-from ..model import Feature
+from ..model import Feature, FeatureList
 from ..textsafe import clean
 from .specs import FeatureSpec, ParamSpec
 
@@ -34,9 +34,19 @@ def render_spec(spec: FeatureSpec) -> str:
     return "\n".join([head, *(l for p in spec.params for l in _spec_line(p, ""))])
 
 
+_COMPRESSED = "selection compressed by Onshape (not readable here; change it in Onshape)"
+
+
+def _query_text(qs: str) -> str:
+    # Onshape rewrites a selection as an opaque qCompressed(...) blob after an update (live G4)
+    if qs.strip().removeprefix("query=").startswith("qCompressed("):
+        return _COMPRESSED
+    return clean(qs, _MAX)
+
+
 def _query(p: dict) -> str:
     queries = [q for q in p.get("queries") or [] if isinstance(q, dict)]
-    strings = [clean(q["queryString"], _MAX) for q in queries
+    strings = [_query_text(q["queryString"]) for q in queries
                if isinstance(q.get("queryString"), str) and q["queryString"].strip()]
     ids = sum(len(q["deterministicIds"]) for q in queries
               if not q.get("queryString") and isinstance(q.get("deterministicIds"), list))
@@ -80,7 +90,17 @@ def param_value(p: dict) -> str:
     return f"<{clean(bt or '?', 60)}>"
 
 
-def render_feature(f: Feature, spec: FeatureSpec | None) -> str:
+def _feature_names(p: dict, fl: FeatureList) -> str:
+    ids = p.get("featureIds")
+    if not isinstance(ids, list):
+        return ""
+    names = {x.id: x.name for x in fl.features}
+    return ", ".join(clean(names[i]) if isinstance(i, str) and i in names
+                     else f"{clean(i, 64)} (not in the feature list)" for i in ids)
+
+
+def render_feature(f: Feature, spec: FeatureSpec | None, fl: FeatureList | None = None) -> str:
+    """`fl`, when given, turns feature-list ids into feature names."""
     lines = [f"{clean(f.name)} [{clean(f.type, 60)}] {clean(f.status, 40)} {clean(f.id, 64)}"]
     params = f.raw.get("parameters") if isinstance(f.raw, dict) else None
     for p in params if isinstance(params, list) else []:
@@ -89,8 +109,15 @@ def render_feature(f: Feature, spec: FeatureSpec | None) -> str:
         pid = clean(p.get("parameterId", "?"), 60)
         ps = spec.param(p["parameterId"]) if spec and isinstance(p.get("parameterId"), str) else None
         label = f"{pid} ({clean(ps.name, 60)})" if ps and ps.name else pid
-        value = param_value(p)
-        if "\n" in value:
+        bt = p.get("btType") if isinstance(p.get("btType"), str) else ""
+        if fl is not None and bt.startswith("BTMParameterFeatureList"):
+            value = _feature_names(p, fl)
+        else:
+            value = param_value(p)
+        is_array = bt.startswith("BTMParameterArray")
+        if is_array and not value.strip():
+            lines.append(f"  {label}: (no items)")
+        elif is_array or "\n" in value:
             lines.append(f"  {label}:")
             lines.extend(f"  {l}" for l in value.splitlines())
         else:

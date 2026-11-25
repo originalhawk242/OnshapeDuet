@@ -34,6 +34,8 @@ class ParamSpec:
     items: tuple["ParamSpec", ...] = ()
     conditional: bool = False
     condition: str = ""
+    # A lookup-table parameter's default (e.g. hole size): sent on add, never set by callers.
+    lookup_default: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -106,6 +108,19 @@ def _default(d: dict, ranges: list, kind: str, quantity_type: str) -> object:
     return None
 
 
+_LOOKUP = "BTParameterSpecLookupTablePath-761"
+
+
+def _lookup_default(d: dict) -> tuple[tuple[str, str], ...]:
+    """A lookup table's default value as (key, value) pairs, only if all are plain strings."""
+    dv = d.get("defaultValue")
+    val = dv.get("value") if isinstance(dv, dict) else None
+    if not isinstance(val, dict) or not val or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in val.items()):
+        return ()
+    return tuple(val.items())
+
+
 def _parse_param(d: object) -> ParamSpec:
     if not isinstance(d, dict):
         raise _bad("malformed parameter spec")
@@ -137,7 +152,8 @@ def _parse_param(d: object) -> ParamSpec:
         options=options,
         enum_name=_str(d, "enumName") if kind == "enum" else "",
         enum_namespace=_str(d, "namespace") if kind == "enum" else "",
-        items=items, conditional=conditional, condition=condition)
+        items=items, conditional=conditional, condition=condition,
+        lookup_default=_lookup_default(d) if bt == _LOOKUP else ())
 
 
 def parse_feature_specs(data: dict) -> list[FeatureSpec]:

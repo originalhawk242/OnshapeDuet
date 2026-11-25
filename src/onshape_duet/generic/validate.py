@@ -8,7 +8,7 @@ from typing import Literal
 from ..lint import Finding
 from ..model import FeatureList
 from ..textsafe import clean
-from .build import ParamError, build_param
+from .build import ParamError, build_param, default_param
 from .specs import FeatureSpec
 
 TYPED_TOOL_REQUIRED = {"newSketch": "cad_sketch", "assignVariable": "cad_variable"}
@@ -91,8 +91,10 @@ def prepare(spec_by_type: dict[str, FeatureSpec], feature_type: str, params: dic
                         f"{clean(pid)} names feature {clean(fid)}, which is not before the "
                         "feature being updated"))
 
-    if mode == "add":
-        prep.defaults_applied = {p.id: p.default for p in spec.params
-                                 if p.id not in params and not p.conditional
-                                 and p.default is not None}
+    if mode == "add":  # Onshape does not fill omitted parameters: send the spec defaults
+        for p in spec.params:
+            if p.id not in params and (d := default_param(p)) is not None:
+                prep.parameters.append(d)
+                prep.defaults_applied[p.id] = (dict(p.lookup_default) if p.lookup_default
+                                               else p.default)
     return prep
